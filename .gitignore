@@ -1,0 +1,5 @@
+*.jar
+out.txt
+bin/*
+game_logs/*
+*.class

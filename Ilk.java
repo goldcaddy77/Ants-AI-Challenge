@@ -4,10 +4,14 @@
 public enum Ilk {
     /** Water tile. */
     WATER,
-/*
-    // Unknown tile. 
-    UNKNOWN,
+
+/*    
+    // Useless tile.  Meaning it is an inlet one deep that searches should not look at
+    USELESS,
 */
+    /** Tile is in a deadend.  Should only be searched for if we specifically want to go here. Same as useless? */
+    DEADEND,
+    
     /** Food tile. */
     FOOD,
     
@@ -35,8 +39,13 @@ public enum Ilk {
      * @return <code>true</code> if this is not a water tile, <code>false</code> otherwise
      */
     public boolean isPassable() {
-        return ordinal() > WATER.ordinal();
+        return ordinal() > DEADEND.ordinal();
     }
+
+    public boolean isMovable() {
+        return ordinal() > FOOD.ordinal();
+    }
+
     
     /**
      * Checks if this type of tile is unoccupied, which means it is a land tile or a dead ant tile.

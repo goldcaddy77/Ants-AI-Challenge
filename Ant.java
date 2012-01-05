@@ -1,3 +1,7 @@
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+
 /**
  * Represents an ant on the game board
  */
@@ -14,6 +18,8 @@ public class Ant implements Comparable<Ant> {
     private int antID;
     private AntType myType;
     private Path path;
+    private int age;
+    private List<String> orderLog = new ArrayList<String>();
        
     /**
      * Creates new {@link Ant} object.
@@ -30,10 +36,19 @@ public class Ant implements Comparable<Ant> {
         this.tileCurrent = tile;
     }
     
+    public int getAge()
+    {
+    	return age;
+    }
+    
     public void setPath(Path p) {
     	this.path = p;
     }
-    
+
+    public void clearPath() {
+    	this.path = null;
+    }
+
     private void setId() {
         this.antID = Ant.AntCounter;
         Ant.AntCounter+=1;
@@ -47,6 +62,17 @@ public class Ant implements Comparable<Ant> {
     public Path getPath() {
         return this.path;
     }
+    
+    public boolean hasPath() {
+        return !(this.path == null);
+    }
+
+    public Tile getNextMove() {
+    	if(this.path == null) {
+    		return null;
+    	}
+    	return this.path.start();
+    }
 
     public Tile getDestination() {
     	if(this.path == null) {
@@ -58,13 +84,14 @@ public class Ant implements Comparable<Ant> {
     }
 
     public void move(Tile to) {
+    	age++;
     	setCurrentTile(to);
     	// if we're currently at the start of our path and we're moving to the 2nd item in our
     	// path, remove the first item (ie take the step)
     	if(this.path != null) {
     		// If this is the last item in the path, set the path to null
     		if(this.path.getSize() == 1) {
-    			this.path = null;
+    			this.clearPath();
     		}
     		else {
     			this.path.step();
@@ -90,6 +117,26 @@ public class Ant implements Comparable<Ant> {
 		this.myType = myType;
 	}
 
+	/**
+	 * @return the orderLog
+	 */
+	public List<String> getOrderLog() {
+		return orderLog;
+	}
+
+	/**
+	 * @param orderLog the orderLog to set
+	 */
+	public void addLog(Integer turn, String orderText) {
+		orderLog.add("Turn: " + turn + " Ant #" + this.antID + " with age " + this.age + " at location " + this.tileCurrent + " was told to do: " + orderText);
+	}
+	
+	public String getLastLog(){
+		if(orderLog.size()==0){
+			return "Ant " + this.antID + " at location " + this.tileCurrent + " has never been issued an order...";
+		}
+		return orderLog.get(orderLog.size()-1);
+	}
 	/** 
      * {@inheritDoc}
      */
@@ -126,5 +173,6 @@ public class Ant implements Comparable<Ant> {
     public String toString() {
         return "AntID: " + antID;
     }
+
     
 }

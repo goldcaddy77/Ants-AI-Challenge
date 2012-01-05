@@ -122,6 +122,37 @@ public abstract class AbstractSystemInputParser extends AbstractSystemInputReade
      * 
      * @param input update information
      */
+    
+    public void parseUpdate(List<String> input) {
+        beforeUpdate();
+        for (String line : input) {
+            line = removeComment(line);
+            if (line.isEmpty()) {
+                continue;
+            }
+            
+            String[] tokens = line.split("\\s+");
+            if(tokens.length < 3 || tokens.length > 4){
+            	//invalid line
+            	continue;
+            }
+            
+            if(tokens[0].equalsIgnoreCase("w")){
+            	addWater(Integer.parseInt(tokens[1]), Integer.parseInt(tokens[2]));
+            } else if(tokens[0].equalsIgnoreCase("a")) {
+            	addAnt(Integer.parseInt(tokens[1]), Integer.parseInt(tokens[2]), Integer.parseInt(tokens[3]));
+            } else if(tokens[0].equalsIgnoreCase("f")) {
+            	addFood(Integer.parseInt(tokens[1]), Integer.parseInt(tokens[2]));
+            } else if(tokens[0].equalsIgnoreCase("d")) {
+            	removeAnt(Integer.parseInt(tokens[1]), Integer.parseInt(tokens[2]), Integer.parseInt(tokens[3]));
+            } else if(tokens[0].equalsIgnoreCase("h")) {
+            	addHill(Integer.parseInt(tokens[1]), Integer.parseInt(tokens[2]), Integer.parseInt(tokens[3]));
+            }
+            
+        }
+        afterUpdate();
+    }
+    /*
     public void parseUpdate(List<String> input) {
         beforeUpdate();
         for (String line : input) {
@@ -166,6 +197,7 @@ public abstract class AbstractSystemInputParser extends AbstractSystemInputReade
         }
         afterUpdate();
     }
+    */
     
     /**
      * Sets up the game state.

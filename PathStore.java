@@ -31,19 +31,19 @@ public class PathStore {
     {
     	Log("getPath: from[" + from + "] - to[" + to + "]");
     	
-    	Path path;
-    	if((path = this.getTileCache(from).get(to.id())) != null) 
-    	{
-    		// refresh the path based on newest game data
-    		path.refresh(this.game);
-    		
-    		// if we learn that this path is obstructed, drop the cache and determine a new path
-    		if(path.obstructed()) {
-    			this.getTileCache(from).put(to.id(), null);
-    			path = getPath(from, to);
-    		}
-		}
-    	else {
+    	Path path = null;
+//    	if((path = this.getTileCache(from).get(to.id())) != null) 
+//    	{
+//    		// refresh the path based on newest game data
+//    		path.refresh(this.game);
+//    		
+//    		// if we learn that this path is obstructed, drop the cache and determine a new path
+//    		if(path.obstructed()) {
+//    			this.getTileCache(from).put(to.id(), null);
+//    			path = getPath(from, to);
+//    		}
+//		}
+//    	else {
         	PathFinder pf = new PathFinder(this, from, to);
         	long begin = System.currentTimeMillis();
         	
@@ -53,8 +53,8 @@ public class PathStore {
         	// System.out.println("Caching tiles: " + tiles);
         	if(tiles != null) {
             	path = cachePath(tiles);
-    	}
-    }
+        	}
+//    }
     
     	return path;
     }

@@ -19,6 +19,21 @@ public enum Aim {
     
     private static final Map<Character, Aim> symbolLookup = new HashMap<Character, Aim>();
     
+    public static final Aim getOpposite(Aim a){
+    	
+    	// REALLY HACKY BUT I'M TIRED
+    	if(a == Aim.NORTH){
+    		return Aim.SOUTH;
+    	} else if(a == Aim.SOUTH){
+    		return Aim.NORTH;
+    	} else if(a == Aim.WEST){
+    		return Aim.EAST;
+    	} else if(a == Aim.EAST){
+    		return Aim.WEST;
+    	}
+    	return Aim.SOUTH;
+    }
+    
     static {
         symbolLookup.put('n', NORTH);
         symbolLookup.put('e', EAST);

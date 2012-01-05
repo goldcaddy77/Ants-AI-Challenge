@@ -30,7 +30,7 @@ public class PathFinder extends AStar<Tile>
     	if(from.equals(to)) {
     		return 0.0;
     	}
-    	else if(this.game.getIlk(to).isPassable()) {
+    	else if(this.game.getIlk(to).isPassable() || isGoal(to)) {
     		return 1.0;
     	}
     	else {
@@ -46,27 +46,11 @@ public class PathFinder extends AStar<Tile>
     protected List<Tile> generateSuccessors(Tile tile){
         List<Tile> successors = new LinkedList<Tile>();
 
-// TODO: put this code back in        
-//        for (Aim direction : Aim.values()) {
-//            if(game.getIlk(tile, direction).isPassable())
-//            	successors.add(game.getTile(tile, direction));
-//        }
-
-        // North
-        if(game.getIlk(tile, Aim.NORTH).isPassable())
-        	successors.add(game.getTile(tile, Aim.NORTH));
-        
-        // South
-        if(game.getIlk(tile, Aim.SOUTH).isPassable())
-        	successors.add(game.getTile(tile, Aim.SOUTH));
-
-        // East
-        if(game.getIlk(tile, Aim.EAST).isPassable())
-        	successors.add(game.getTile(tile, Aim.EAST));
-
-        // West
-        if(game.getIlk(tile, Aim.WEST).isPassable())
-        	successors.add(game.getTile(tile, Aim.WEST));
+        for (Aim direction : Aim.values()) {
+        	Tile t = game.getTile(tile, direction);
+            if(game.getIlk(t).isPassable() || isGoal(t))
+            	successors.add(t);
+        }
         
         return successors;
     }

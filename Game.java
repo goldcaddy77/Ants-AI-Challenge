@@ -1,3 +1,6 @@
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -42,8 +45,14 @@ public class Game {
     private final Set<Tile> myHillTiles = new HashSet<Tile>();
     private final Set<Tile> enemyHillTiles = new HashSet<Tile>();
     private final Set<Tile> foodTiles = new HashSet<Tile>();
+    private final Set<Tile> waterTiles = new HashSet<Tile>();
 
     private final Set<Order> orders = new HashSet<Order>();
+
+    // Items used in logging
+    private FileWriter fstream;
+    private BufferedWriter out;
+    private int iCrashTurn;
 
     /**
      * Creates new {@link Game} object.
@@ -68,6 +77,15 @@ public class Game {
         this.attackRadius2 = attackRadius2;
         this.spawnRadius2 = spawnRadius2;
 
+        // Set up logging
+        try {
+			fstream = new FileWriter("out.txt");
+		    out = new BufferedWriter(fstream);
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+        
         map = new Ilk[rows][cols];
         for (Ilk[] row : map) {
             Arrays.fill(row, Ilk.LAND);
@@ -76,7 +94,7 @@ public class Game {
         for (boolean[] row : visible) {
             Arrays.fill(row, false);
         }
-        // calc vision offsets
+        // Put this into the new data structure (Range, Offset - not sure what I'm calling it yet)
         visionOffsets = new HashSet<Tile>();
         int mx = (int)Math.sqrt(viewRadius2);
         for (int row = -mx; row <= mx; ++row) {
@@ -94,6 +112,8 @@ public class Game {
                 discovered[row][col] = false;
             }
         }
+        
+        this.iCrashTurn = 1;
     }
 
     /**
@@ -228,6 +248,10 @@ public class Game {
         return map[newTile.getRow()][newTile.getCol()];
     }
 
+    public Ilk getIlk(int row, int col) {
+    	return getIlk(getTile(row, col));
+    }
+    
     /**
      * Returns location in the specified direction from the specified location.
      * 
@@ -237,15 +261,15 @@ public class Game {
      * @return location in <code>direction</code> from <cod>tile</code>
      */
     public Tile getTile(Tile tile, Aim direction) {
-        int row = (tile.getRow() + direction.getRowDelta()) % rows;
-        if (row < 0) {
-            row += rows;
-        }
-        int col = (tile.getCol() + direction.getColDelta()) % cols;
-        if (col < 0) {
-            col += cols;
-        }
-        return new Tile(row, col);
+    	return getTile(tile, new Tile(direction.getRowDelta(), direction.getColDelta()));
+    }
+    
+    public Tile getTile(int row, int col) {
+    	return new Tile(getRow(row), getCol(col));
+    }
+    
+    public Tile getTileAllowNegatives(int row, int col) {
+    	return new Tile(row, col);
     }
 
     /**
@@ -257,17 +281,50 @@ public class Game {
      * @return location with <code>offset</code> from <cod>tile</code>
      */
     public Tile getTile(Tile tile, Tile offset) {
-        int row = (tile.getRow() + offset.getRow()) % rows;
-        if (row < 0) {
-            row += rows;
-        }
-        int col = (tile.getCol() + offset.getCol()) % cols;
-        if (col < 0) {
-            col += cols;
-        }
-        return new Tile(row, col);
+        return getTile(tile, offset.getRow(), offset.getCol());
+    }
+    
+    // Get tile a specified number of spaces in a given direction
+    public Tile getTile(Tile tile, Aim a, int dist) {
+    	return getTile(tile, new Tile(a.getRowDelta() * dist, a.getColDelta() * dist));
     }
 
+    public Tile getTile(Tile tile, int iRows, int iCols) {
+        return new Tile(getRow(tile.getRow(), iRows), getCol(tile.getCol(), iCols));
+    }
+
+    public int getRow(int r) {
+    	return (r + rows) % rows;
+    }
+
+    public int getRow(int r1, int r2) {
+    	return getRow(r1 + r2);
+    }
+
+    public int getCol(int c) {
+    	return (c + cols) % cols;
+    }
+
+    public int getCol(int c1, int c2) {
+    	return getCol(c1 + c2);
+    }
+
+    public boolean isPassible(Tile t) {
+    	return this.getIlk(t).isPassable();
+    }
+
+    public boolean isPassible(int row, int col) {
+    	return this.getIlk(new Tile(row, col)).isPassable();
+    }
+    
+    // TODO: Do I need to time this out at some point?
+    public Tile getTileNextPassible(Tile tile, Aim direction) {
+    	Tile next; 
+    	while(!isPassible(next = getTile(tile, direction))) { }
+        return next;
+    }
+    
+    
     /**
      * Returns a set containing all my ants locations.
      * 
@@ -314,6 +371,17 @@ public class Game {
     }
 
     /**
+     * Returns a set containing all my ants locations.
+     * 
+     * @return a set containing all my ants locations
+     */
+    public Set<Tile> getWaterTiles() {
+        return waterTiles;
+    }
+
+    
+
+    /**
      * Returns all orders sent so far.
      * 
      * @return all orders sent so far
@@ -353,13 +421,101 @@ public class Game {
      * @return distance between <code>t1</code> and <code>t2</code>
      */
     public int getDistance(Tile t1, Tile t2) {
-        int rowDelta = Math.abs(t1.getRow() - t2.getRow());
-        int colDelta = Math.abs(t1.getCol() - t2.getCol());
-        rowDelta = Math.min(rowDelta, rows - rowDelta);
-        colDelta = Math.min(colDelta, cols - colDelta);
+        int rowDelta = getRowDelta(t1, t2);
+        int colDelta = getColDelta(t1, t2);
         return rowDelta * rowDelta + colDelta * colDelta;
     }
 
+    public Tile getClosestLocation(Tile origin, Set<Tile> destinations)
+    {
+    	Tile closestTile = null;
+    	int closestDist = Integer.MAX_VALUE;
+    	int currDist;
+    	for (Tile dest : destinations) {
+    		if((currDist = getDistance(origin, dest)) < closestDist) {
+    			closestDist = currDist;
+    			closestTile = dest;
+    		}
+        }
+    	return closestTile;
+    }
+    
+    public int getRowDelta(Tile t1, Tile t2) {
+        int rowDelta = Math.abs(t1.getRow() - t2.getRow());
+        return Math.min(rowDelta, rows - rowDelta);
+    }
+
+    public int getColDelta(Tile t1, Tile t2) {
+        int colDelta = Math.abs(t1.getCol() - t2.getCol());
+        return Math.min(colDelta, cols - colDelta);
+    }
+
+    public int getClosestDistanceAfterTurns(Tile t1, Tile t2, int numTurns) {
+        int rowDelta = getRowDelta(t1, t2);
+        int colDelta = getColDelta(t1, t2);
+
+        for(int i=1; i<=numTurns; i++) {
+        	if(rowDelta > colDelta) {
+        		rowDelta = Math.max(0, rowDelta - 1);
+        	}
+        	else {
+        		colDelta = Math.max(0, colDelta - 1);
+        	}
+        }
+        return rowDelta * rowDelta + colDelta * colDelta;
+    }
+
+    public boolean areNeighbors(Tile t1, Tile t2)
+    {
+        int rowDelta = getRowDelta(t1, t2);
+        int colDelta = getColDelta(t1, t2);
+        
+        return (rowDelta + colDelta) == 1;
+    }
+    
+    public List<Aim> getMostAggressiveMove(Tile start, Tile end, Tile tiebreaker) 
+    {
+    	log("BEGIN getMostAgressiveMove: " + start + " | " + end);
+    	List<Aim> aimList = getDirections(start, end);
+    	
+    	log("aimList: " + aimList);
+        // If getDirections only returned one move, return it
+        if(aimList.size() >= 2) {
+            int rowDelta = getRowDelta(start, end);
+            int colDelta = getColDelta(start, end);
+        	log("rowDelta: " + rowDelta);
+        	log("colDelta: " + colDelta);
+
+        	boolean reverse = false;
+            Aim aimFirst = aimList.get(0);
+        	log("aimFirst: " + aimFirst);
+        	
+            // If rowDelta is greater, we're looking for a N or S move. If = E or W, reverse
+            reverse = reverse || ((rowDelta > colDelta) && (aimFirst == Aim.EAST || aimFirst == Aim.WEST));
+
+            // If colDelta is greater, we're looking for a E or W move. If = N or S, reverse
+            reverse = reverse || ((colDelta > rowDelta) && (aimFirst == Aim.NORTH || aimFirst == Aim.SOUTH));
+
+        	// TODO: tiebreaker!!! 
+            // If we got here
+            if(reverse) {
+        		// reverse the list
+            	log("reverse 1: " + aimList);
+        		aimList.remove(aimFirst);
+            	log("reverse 2: " + aimList);
+        		aimList.add(1, aimFirst);
+            	log("reverse 3: " + aimList);
+            }
+            else if(rowDelta == colDelta) {
+            	// Figure out what to do here
+            	log("Equally spaced: rowDelta == colDelta");
+            }
+        }
+
+    	log("END getMostAgressiveMove");
+    	return aimList;
+    }    
+    
     /**
      * Returns one or two orthogonal directions from one location to the another.
      * 
@@ -398,7 +554,19 @@ public class Game {
         }
         return directions;
     }
-
+    
+    public Aim getDirection(Tile t1, Tile t2) {
+    	List<Aim> directions = getDirections(t1, t2);
+    	if(directions == null || directions.size() == 0) {
+    		return null;
+    	}
+    	
+    	return directions.get(0);
+    }
+    
+    
+    
+    
     /**
      * Clears game state information about my ants locations.
      */
@@ -508,6 +676,9 @@ public class Game {
             case MY_ANT:
                 myAntTiles.add(tile);
             break;
+            case WATER:
+            	waterTiles.add(tile);
+            break;
             case ENEMY_ANT:
                 enemyAntTiles.add(tile);
             break;
@@ -527,6 +698,26 @@ public class Game {
             myHillTiles.add(tile);
     }
 
+    public void log(String log){
+    	try {
+
+    	    out.write(log + "\r\n");
+    	    out.flush();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+    }
+
+    public int getCrashTurn() {
+    	return iCrashTurn;
+    }    
+    
+    public void logcrash(String str){
+    	if(getCurrentTurn() == this.iCrashTurn)
+    		log(str);
+    }
+    
     /**
      * Issues an order by sending it to the system output.
      * 
