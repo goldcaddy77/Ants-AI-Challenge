@@ -1,10 +1,13 @@
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * Represents a direction in which to move an ant.
  */
-public enum Aim {
+public enum Aim 
+{
     /** North direction, or up. */
     NORTH(-1, 0, 'n'),
     
@@ -32,6 +35,25 @@ public enum Aim {
     		return Aim.WEST;
     	}
     	return Aim.SOUTH;
+    }
+
+    public static final List<Aim> getPerpendiculars(Aim a){
+    	List<Aim> aimList = new ArrayList<Aim>();
+    	// REALLY HACKY BUT I'M TIRED
+    	if(a == Aim.NORTH){
+    		aimList.add(WEST);
+    		aimList.add(EAST);
+    	} else if(a == Aim.SOUTH){
+    		aimList.add(WEST);
+    		aimList.add(EAST);
+    	} else if(a == Aim.WEST){
+    		aimList.add(NORTH);
+    		aimList.add(SOUTH);
+    	} else if(a == Aim.EAST){
+    		aimList.add(NORTH);
+    		aimList.add(SOUTH);
+    	}
+    	return aimList;
     }
     
     static {

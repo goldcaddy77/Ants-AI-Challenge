@@ -25,7 +25,7 @@ public class Path {
     }
     
     // Refreshes the path with currently discovered tiles
-    public boolean refresh(Game g)
+    public boolean refresh(AntMap map)
     {
     	if(bComplete) {
     		return true;
@@ -34,8 +34,8 @@ public class Path {
     	boolean bDisc = true;
     	boolean bObst = false;
         for (Tile t : this.tiles) {
-        	bDisc = bDisc && g.isDiscovered(t); // complete = all tiles discovered
-        	bObst = bObst || !g.getIlk(t).isPassable(); // obstructed = any tile unpassable (water)
+        	bDisc = bDisc && map.isDiscovered(t); // complete = all tiles discovered
+        	bObst = bObst || !map.getIlk(t).isPassable(); // obstructed = any tile unpassable (water)
         }
         bDiscovered = bDisc;
         bObstructed = bObst;

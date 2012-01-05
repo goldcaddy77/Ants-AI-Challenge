@@ -1,26 +1,22 @@
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 
 public class PathStore {
 
-    private Game game = null;
+    private AntMap map;
     private boolean bDebug;
     private int size;
     
     private HashMap<Integer, HashMap<Integer, Path>> store = new HashMap<Integer, HashMap<Integer, Path>>();
     
-    public PathStore(Game game){
-    	this.game = game;
+    public PathStore(AntMap map){
+    	this.map = map;
     	this.bDebug = false;
     	this.size = 0;
     }	
 	
-    public Game getGame(){
-    	return this.game;
+    public AntMap getMap(){
+    	return this.map;
     }
 
     public void emptyCache(){
@@ -29,8 +25,6 @@ public class PathStore {
 
     public Path getPath(Tile from, Tile to)
     {
-    	Log("getPath: from[" + from + "] - to[" + to + "]");
-    	
     	Path path = null;
 //    	if((path = this.getTileCache(from).get(to.id())) != null) 
 //    	{
@@ -48,7 +42,11 @@ public class PathStore {
         	long begin = System.currentTimeMillis();
         	
         	List<Tile> tiles = pf.compute(from);
-        	long end = System.currentTimeMillis(); Log("Time = " + (end - begin) + " ms" ); Log("Expanded = " + pf.getExpandedCounter()); Log("Cost = " + pf.getCost()); Log("REMAINING TIME = " + game.getTimeRemaining()); Log("Tiles: " + tiles);
+        	long end = System.currentTimeMillis(); 
+//        	map.log("Time = " + (end - begin) + " ms" ); 
+//        	map.log("Expanded = " + pf.getExpandedCounter()); 
+//        	map.log("Cost = " + pf.getCost()); 
+//        	map.log("Tiles: " + tiles);
     		
         	// System.out.println("Caching tiles: " + tiles);
         	if(tiles != null) {
@@ -65,7 +63,7 @@ public class PathStore {
         int iLen = tiles.size();
     	boolean bPathComplete = true;
     	for (int i=0; i<iLen; i++) {
-       		bPathComplete = bPathComplete && game.isVisible(tiles.get(i));
+       		bPathComplete = bPathComplete && map.isVisible(tiles.get(i));
         }
         
     	// Get the cache for the starting tile

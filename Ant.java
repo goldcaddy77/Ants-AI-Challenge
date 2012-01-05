@@ -1,5 +1,7 @@
-import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 
 /**
@@ -19,8 +21,8 @@ public class Ant implements Comparable<Ant> {
     private AntType myType;
     private Path path;
     private int age;
-    private List<String> orderLog = new ArrayList<String>();
-       
+    private Map<Integer, LinkedList<String>> orderLog = new HashMap<Integer, LinkedList<String>>();
+           
     /**
      * Creates new {@link Ant} object.
      * 
@@ -120,27 +122,24 @@ public class Ant implements Comparable<Ant> {
 	/**
 	 * @return the orderLog
 	 */
-	public List<String> getOrderLog() {
-		return orderLog;
+	public LinkedList<String> getOrderLog(int iTurn) {
+		return orderLog.get(iTurn);
 	}
 
 	/**
 	 * @param orderLog the orderLog to set
 	 */
 	public void addLog(Integer turn, String orderText) {
-		orderLog.add("Turn: " + turn + " Ant #" + this.antID + " with age " + this.age + " at location " + this.tileCurrent + " was told to do: " + orderText);
+		if(!orderLog.containsKey(turn)) {
+			orderLog.put(turn, new LinkedList<String>());
+		}
+		orderLog.get(turn).add(" Ant " + this + " with age " + this.age + " was told to do: " + orderText);
 	}
 	
-	public String getLastLog(){
-		if(orderLog.size()==0){
-			return "Ant " + this.antID + " at location " + this.tileCurrent + " has never been issued an order...";
-		}
-		return orderLog.get(orderLog.size()-1);
-	}
 	/** 
      * {@inheritDoc}
      */
-    @Override
+    @	Override
     public int compareTo(Ant o) {
         return hashCode() - o.hashCode();
     }
@@ -171,8 +170,7 @@ public class Ant implements Comparable<Ant> {
      */
     @Override
     public String toString() {
-        return "AntID: " + antID;
+        return "#" + antID + " " + this.getCurrentTile();
     }
-
     
 }

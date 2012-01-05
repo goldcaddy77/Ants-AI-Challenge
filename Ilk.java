@@ -17,13 +17,13 @@ public enum Ilk {
     
     /** Land tile. */
     LAND,
-/*    
+    
     // My Hill tile
     MY_HILL,
     
     // Enemy Hill tile
     ENEMY_HILL,
-*/    
+    
     /** Dead ant tile. */
     DEAD,
     
@@ -42,10 +42,18 @@ public enum Ilk {
         return ordinal() > DEADEND.ordinal();
     }
 
+    public boolean isNavigable() {
+        return ordinal() > FOOD.ordinal();
+    }
+
     public boolean isMovable() {
         return ordinal() > FOOD.ordinal();
     }
 
+    public boolean isClearable() {
+        return this == FOOD || this == DEAD || this == MY_ANT || this == ENEMY_ANT;
+    }
+    
     
     /**
      * Checks if this type of tile is unoccupied, which means it is a land tile or a dead ant tile.

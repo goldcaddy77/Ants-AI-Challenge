@@ -1,8 +1,5 @@
-import java.io.BufferedWriter;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -17,414 +14,376 @@ import java.util.Set;
 /**
  * Scannigan Bot
  */
-public class MyBot extends Bot {
-
-	private int COLS;
-	private int ROWS;
-
-    private Map<Tile, Ant> myAntLocations = new HashMap<Tile,Ant>();
-    private Set<Ant> myAnts = new HashSet<Ant>();
-    private Set<Ant> newAnts = new HashSet<Ant>();
-
+public class MyBot extends Bot 
+{
+    // Tracking Order
     private Set<Ant> antOrders = new HashSet<Ant>();
     private Map<Ant,  Pair<Ant, Aim>> queueOrders = new HashMap<Ant,  Pair<Ant, Aim>>();
     
-    private Set<Tile> enemyHills = new HashSet<Tile>();
-    private Set<Integer> enemies = new HashSet<Integer>();
-    private Game game;
-    private int harvestorHeatMap[][];
-    private int enemyHeatMap[][];
-    
-
-    private FileWriter fstream;
-    private BufferedWriter out;
-    private PathStore ps;
-    
-    private int iCrashTurn;
+    // Food
     private int iViewSpaces;
+    private Set<Tile> foodClaimed = new HashSet<Tile>();
+    private Offset offFlurry;
+    private HeatMap hmFlurry;
+    private Offset offWater;
+    private HeatMap hmWater;
     
-    private Map<Tile, ArrayList<Tile>> hillStartTargets = new HashMap<Tile,ArrayList<Tile>>();
+    // Hill Defense
+    private int HILL_DEFENSE_RADIUS;
+    private Set<Tile> enemyDefenseClaimed = new HashSet<Tile>();
+    private Offset offHillDefense;
+    private HeatMap hmHillDefense;
+
+    // Start Locations
+    private Map<Tile, ArrayList<Tile>> hillStartTargets;
     private Map<Tile, Integer> antsSentRandomlyFromLocation = new HashMap<Tile, Integer>();
     private Set<Tile> startLocations = new HashSet<Tile>();
-    
-    private Set<Tile> myHills = new HashSet<Tile>();
 
+    // Battle Resolution
+    private Offset offHelp;
+    // private HeatMap hmEnemyProposedNextAttack;
+    // private HeatMap hmEnemyAttackDelta;
     
-    
-    private String detailedMap[][];
+    // Path store
+    private PathStore ps;
 
     public void setup(int loadTime, int turnTime, int rows, int cols, int turns, int viewRadius2, int attackRadius2, int spawnRadius2) 
     {
-        super.setup(loadTime, turnTime, rows, cols, turns, viewRadius2, attackRadius2, spawnRadius2);
+    	super.setup(loadTime, turnTime, rows, cols, turns, viewRadius2, attackRadius2, spawnRadius2);
 
-        this.iViewSpaces = (int)Math.floor(Math.sqrt((double)viewRadius2));
+        iViewSpaces = (int)Math.floor(Math.sqrt((double)viewRadius2));
+        HILL_DEFENSE_RADIUS = Math.min(game.getViewRadius2(), 100);
+
+        // Set up and offsets
+        offFlurry = new Offset(169, map);
+        hmFlurry = new HeatMap(map, offFlurry, true);
+
+        // Set up water heatmap to push the flurry away from water
+        offWater= new Offset(9, map);
+        hmWater = new HeatMap(map, offWater, true);
         
-		this.ROWS = rows;
-		this.COLS = cols;
+        // TODO: figure out best range for hill defense
+        offHillDefense = new Offset(HILL_DEFENSE_RADIUS, map);
+        hmHillDefense = new HeatMap(map, offHillDefense);
 
-	    try {
-			fstream = new FileWriter("out.txt");
-		    out = new BufferedWriter(fstream);
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
+        // TODO: figure out of we should ask for help from more than 3 spaces away
+        offHelp= new Offset(9, map);
+
+        // this.hmEnemyProposedNextAttack = new HeatMap(this, offAttack, false);
+        // this.hmEnemyAttackDelta = new HeatMap(this, offAttack, false);
+
+        // Send new ants to start locations around the hill
+        int startCols = Math.min(iViewSpaces + 2, 10);
+        int startRows = startCols;
+        startLocations = new HashSet<Tile>();
+        startLocations.add(map.getTileAllowNegatives(-1 * startRows, -1 * startCols)); // NW
+        startLocations.add(map.getTileAllowNegatives(-1 * startRows, startCols)); // NE
+        startLocations.add(map.getTileAllowNegatives(startRows, -1 * startCols)); // SW
+        startLocations.add(map.getTileAllowNegatives(startRows, startCols)); // SE
+        startLocations.add(map.getTileAllowNegatives(-1 * startRows, 0)); // N
+        startLocations.add(map.getTileAllowNegatives(0, -1 * startCols)); // W
+        startLocations.add(map.getTileAllowNegatives(startRows, 0)); // S
+        startLocations.add(map.getTileAllowNegatives(0, startCols)); // E
+        // log("StartLocations: " + startLocations);
         
-        game = this.getGame();
-
-        harvestorHeatMap = new int[ROWS][COLS];
-        enemyHeatMap = new int[ROWS][COLS];
-        
-        for (int r = 0; r < ROWS; ++r) {
-            for (int c = 0; c < COLS; ++c) {
-                harvestorHeatMap[r][c] = 0;
-            }
-        }
-
-        for (int r = 0; r < ROWS; ++r) {
-            for (int c = 0; c < COLS; ++c) {
-            	enemyHeatMap[r][c] = 0;
-            }
-        }
-
-        detailedMap = new String[ROWS][COLS];
-        for (int r = 0; r < ROWS; ++r) {
-            for (int c = 0; c < COLS; ++c) {
-            	detailedMap[r][c] = "_";
-            }
-        }
-
-        ps = new PathStore(game);
-    	this.iCrashTurn = 20;
-    	
-    	 this.hillStartTargets = new HashMap<Tile,ArrayList<Tile>>();
-
-         this.startLocations = new HashSet<Tile>();
-         int startCols = Math.min(iViewSpaces + 2, 10);
-         int startRows = startCols;
-         startLocations.add(game.getTileAllowNegatives(-1 * startRows, -1 * startCols)); // NW
-         startLocations.add(game.getTileAllowNegatives(-1 * startRows, startCols)); // NE
-         startLocations.add(game.getTileAllowNegatives(startRows, -1 * startCols)); // SW
-         startLocations.add(game.getTileAllowNegatives(startRows, startCols)); // SE
-         startLocations.add(game.getTileAllowNegatives(-1 * startRows, 0)); // N
-         startLocations.add(game.getTileAllowNegatives(0, -1 * startCols)); // W
-         startLocations.add(game.getTileAllowNegatives(startRows, 0)); // S
-         startLocations.add(game.getTileAllowNegatives(0, startCols)); // E
-    	
-    	
+        ps = new PathStore(map);
     }
     
     public void removeAnt(int row, int col, int owner) {
         super.removeAnt(row, col, owner);
-        if(owner == 0 && myAntLocations.containsKey(new Tile(row,col))) {
-        	
-        	Ant removedAnt = myAntLocations.remove(new Tile(row,col));
-        	myAnts.remove(removedAnt);
-        	
-        	log("My ant {" + removedAnt + "} died at " + row + " : " + col);
-        }
+        // AntMap object does everything now
     }
     
     public void addAnt(int row, int col, int owner) {
     	super.addAnt(row, col, owner);
-    	// log("adding an ant for owner " + owner + " at location " + row + " " + col);
-        if(owner == 0 && !myAntLocations.containsKey(new Tile(row,col))) {
-            Ant newAnt = new Ant(row,col);
-            log("[" + game.getTimeRemaining() + "] Adding my ant " + newAnt + " at " + row + " : " + col);
-        	myAntLocations.put(new Tile(row,col), newAnt);
-        	myAnts.add(newAnt);
-        	newAnts.add(newAnt);
-        } else if (owner != 0) {
-        	// its an enemy ant!
-        	enemies.add(new Integer(owner));
-        		
-        }
-    }
-    
-    public void addWater(int row, int col) {
-    	super.addWater(row, col);
-    	log("[" + game.getTimeRemaining() + "] Adding water at " + row + " : " + col);
-    	
+    	// AntMap object does everything now
     }
 
-    public void beforeUpdate() 
-    {
-        super.beforeUpdate();
-        log("----------------------------------------------");
-        log("[" + game.getTimeRemaining() + "] Beginning beforeupdate " + game.getCurrentTurn());
-
-    	
-    }
     public void afterUpdate() 
     {
         super.afterUpdate();
-
+        map.afterUpdate();
+        
         log("----------------------------------------------");
-        log("[" + game.getTimeRemaining() + "] Beginning afterUpdate " + game.getCurrentTurn());
+        log("Beginning turn " + game.getCurrentTurn());
 
-      
-
-      	log("[" + game.getTimeRemaining() + "] Clear heatmaps and such");
-      	
-
-        for (int r = 0; r < ROWS; ++r) {
-            for (int c = 0; c < COLS; ++c) {
-                harvestorHeatMap[r][c] = 0;
-            }
-        }
-
-        for (int r = 0; r < ROWS; ++r) {
-            for (int c = 0; c < COLS; ++c) {
-                enemyHeatMap[r][c] = 0;
-            }
-        }
-
-      	log("[" + game.getTimeRemaining() + "] Calculating Heat Maps");
+        foodClaimed.clear();
     	antOrders.clear();
     	queueOrders.clear();
-    	calculateHeatMap();
-    	calculateEnemyHeatMap();
-    	calculateDeadEnds();
+    	enemyDefenseClaimed.clear();
+    	// enemyMoves.clear();
+    	// newEnemyLocations.clear();
 
-      	log("[" + game.getTimeRemaining() + "] Removing enemy sacked hills");
-    	// remove sacked enemy hills - need to use iterator when removing
-    	// Also, to remove a hill, you need to check to see if the hill is in your site and 
-    	// the data doesn't contain it - then you know it's gone
-    	for (Iterator<Tile> hillIter = enemyHills.iterator(); hillIter.hasNext(); ) {
-	        Tile hill = hillIter.next();
-            if (game.isVisible(hill) && !game.getEnemyHills().contains(hill)) {
-	        	hillIter.remove();
-
-	        	// Tell all of my ants that were ordered here that they no longer have orders
-	        	for(Ant ant : myAnts) {
-	            	if(ant.getDestination() != null && ant.getDestination().equals(hill)) {
-	            		ant.clearPath();
-	            	}
-	            }	        	
-	        	
-    			// System.out.println("Discovered enemy hill was destroyed: " + hill);
-	        }
-        }    	
-
-
-      	log("[" + game.getTimeRemaining() + "] Add new enemy hills");
-      	
-    	// add new enemy hills to set
-        for (Tile enemyHill : game.getEnemyHills()) {
-            if (!enemyHills.contains(enemyHill)) {
-                enemyHills.add(enemyHill);
-                log("enemyHill: " + enemyHill);
-            }
-        }
-        
-
-      	log("[" + game.getTimeRemaining() + "] Set up corner locations for my " + game.getMyHills() + " hills");
-      	
-        // Set up corner locations
-        // TODO: figure out a better solution for this (maybe 40% instead of 33%)?
-     // add my hills to set
-        for (Tile myHill : game.getMyHills()) {
-            if (!myHills.contains(myHill)) {
-            	myHills.add(myHill);
-            	log("MY NEW HILL: " + myHill);
-
-            	this.antsSentRandomlyFromLocation.put(myHill, 0);
-            	this.hillStartTargets.put(myHill, new ArrayList<Tile>());
-            	for(Tile tOffset: startLocations) {
-                	this.hillStartTargets.get(myHill).add(game.getTile(myHill, tOffset));
-            	}
-            }
-        }
+    	hmFlurry.calculate(map.getAllFriendlyAntTiles(), map.getUnnavigableTiles());
+    	hmFlurry.print();
+    	
+    	hmWater.calculate(map.getUnnavigableTiles() , new HashSet<Tile>());
+    	hmWater.print();
+    	
+    	hmFlurry.add(hmWater);
+    	hmFlurry.print();
+    	
+    	
+    	hmHillDefense.copyMapFrom(map.getEnemyVisionHeatMap());
+    	hmHillDefense.subtract(map.getMyVisionHeatMap());
+    	hmHillDefense.addImportance(map.getFriendlyHills(), offHillDefense);
+        // this.hmHillDefense.print();
+    	
+    	// For all new hills added to the map, give them targets
+        // On the first turn
+    	if(hillStartTargets == null)
+    	{
+	    	log("Updating hillStartTargets");
+    		hillStartTargets = new HashMap<Tile,ArrayList<Tile>>();
+	    	
+	    	for (Tile myHill : map.getFriendlyHills()) 
+	        {
+		    	log("Found: " + myHill);
+	    		
+	    		this.antsSentRandomlyFromLocation.put(myHill, 0);
+	        	this.hillStartTargets.put(myHill, new ArrayList<Tile>());
+	        	for(Tile tOffset: startLocations) {
+	            	this.hillStartTargets.get(myHill).add(map.getTile(myHill, tOffset));
+	        	}
+	        }    	
+    	}
+    	
+        // TODO: Do we want to empty the cache
         ps.emptyCache();
     }
 
     public void doTurn() 
     {
-    	
-
-        log("----------------------------------------------");
-        log("[" + game.getTimeRemaining() + "] Beginning doTurn " + game.getCurrentTurn());
-      	
-    	if(game.getCurrentTurn() == iCrashTurn) {
+    	if(game.getCurrentTurn() == game.getCrashTurn()) {
     		String s = "Crash Breakpoint";
     	}
-
+    	
         // Priority 0: Battle Resolution
-        // how to check if an ant dies
-        // for every ant:
-    	//     for each enemy in range of ant (using attackadius2):
-    	//         if (enemies(of ant) in range of ant) >= (enemies(of enemy) in range of enemy) then
-    	//             the ant is marked dead (actual removal is done after all battles are resolved)
-    	//             break out of enemy loop
-    	log("[" + game.getTimeRemaining() + "] Begin checking enemies");
+    	log("[" + game.getTimeRemaining() + "] Begin Battle Resolution");
 
-        Map<Ant, List<Tile>> enemyByAnt = new HashMap<Ant, List<Tile>>();
-        Map<Tile,List<Ant>> antByEnemy = new HashMap<Tile,List<Ant>>();
-        Set<Ant> dangerAnts = new HashSet<Ant>();
-        
-        log("We have " + game.getEnemyAnts().size() + " enemy ants visible and " + myAnts.size() + " ants");
-         
-    	for(Tile enemyAnt: game.getEnemyAnts())
+		int heat;
+
+		// Loop through all ants that are on a tile that the enemy can attack next turn
+       	for (Map.Entry<Ant, Set<Tile>> mapMeAndEnemies : map.getMyAntToCloseByEnemies().entrySet())
+       	{
+           	Ant ant = mapMeAndEnemies.getKey();
+
+			int heatOnMe = map.getEnemyNextAttackHeat(ant);
+			log("Ant " + ant + " can be attacked by " + heatOnMe + " enemies next turn ");
+
+   			Tile tileClosestEnemy = getClosestEnemy(ant);
+   			int heatOnEnemy = map.getMyNextAttackHeat(tileClosestEnemy);
+
+   			log("Enemy " + tileClosestEnemy + " can be attacked by " + heatOnEnemy + " enemies next turn ");
+
+			if(heatOnMe < heatOnEnemy) 
+			{
+				// TODO: make sure these dudes haven't been given orders already 
+				// 1 1E1 1 
+				 // 1 1 1 1 
+				 // 1 1 1 1 
+				 // 0A1 1A1 
+
+				log("BR Decision: ATTACK!!!");
+				
+				// I want to attack, but I should be smarter about what tiles I go to
+				for(Ant attacker: map.getMyAntsInEnemyAttackRange(tileClosestEnemy)) {
+					for(Aim a: map.getDirectionsMostAggressive(attacker.getCurrentTile(), tileClosestEnemy, new Tile(0,0))) {
+						attacker.addLog(game.getCurrentTurn(), "Battle Resolution: found enemy with less heat than I have, attack in direction: " + a);;
+						doMoveDirection(attacker, a);
+					}
+				}
+			}
+			else if(heatOnMe > heatOnEnemy) 
+			{
+				log("BR Decision: RUN!");
+				
+				List<Aim> dirOpposites = map.getDirectionsMostAggressive(tileClosestEnemy, ant.getCurrentTile(), new Tile(0, 0));
+
+				log("Dir opposites: " + dirOpposites);
+
+				for(Aim aim: dirOpposites) {
+					ant.addLog(game.getCurrentTurn(), "Battle Resolution: taking too much heat... move in opposite direction");
+					if(doMoveDirection(ant, aim)) {
+						log("My ant " + ant + " ran away from " + tileClosestEnemy + " by moving " + aim);
+						break;
+					}
+				}
+			}
+			else {
+				// TODO: if no help, look for safe moves by looking at enemy next move heatmap
+				// Pick "best" safe move depending on what you're trying to do
+				log("BR Decision: Even heat, ask for help");
+
+				Ant helper = getClosestHelp(ant, tileClosestEnemy);
+				
+				// If help was found, join forces
+				if(helper != null) 
+				{
+					log("Found help: " + helper);
+
+					Set<Ant> attackGroup = new HashSet<Ant>();
+					attackGroup.add(ant);
+					attackGroup.add(helper);
+					// moveToBorders(attackGroup, hmEnemyNextAttack);
+
+					// Ok, Assuming we got here, we decided we can't kill the enemy on this turn.
+					// First move the ant to a safe spot
+					if(map.isEnemyNextAttackBorder(ant.getCurrentTile())) {
+						log("Ant is already on a border, telling him to stay put");
+						ant.addLog(game.getCurrentTurn(), "Battle Resolution: equal heat and this ant is on a border - stay put");
+						antOrders.add(ant);
+					}
+					else 
+					{
+						Set<Tile> tileMoves = map.findEnemyNextAttackBorders(helper.getCurrentTile());
+
+						for(Tile tile: tileMoves) {
+							helper.addLog(game.getCurrentTurn(), "Battle Resolution: attempting to move helper to border by going to tile " + tile);
+							if(doMoveDirection(helper, map.getDirection(ant.getCurrentTile(), tile))) {
+								log("Helper " + ant + "successfully moved to border by moving to tile " + tile);
+								break;
+							}
+						}
+						
+						if(!antOrders.contains(ant)) {
+							ant.addLog(game.getCurrentTurn(), "Battle Resolution: couldn't find a border, so just headed towards " + helper);
+							log("Couldn't find a border, so just sent " + ant + " towards" + helper);
+							doMoveLocation(ant, helper.getCurrentTile());
+						}
+					}
+					
+					// If helper is on a border, stay put
+					// TODO: this will work for now, but we want to get the helper as close to our ant
+					if(map.isEnemyNextAttackBorder(helper.getCurrentTile())) {
+						helper.addLog(game.getCurrentTurn(), "Battle Resolution: helper is already on a border, telling him to stay put");
+						log("Helper is already on a border, telling him to stay put");
+						antOrders.add(helper);
+					}
+					else 
+					{
+						Set<Tile> tileMoves = map.findEnemyNextAttackBorders(helper.getCurrentTile());
+
+						for(Tile tile: tileMoves) {
+							helper.addLog(game.getCurrentTurn(), "Attempting to move helper to border");
+							
+							if(doMoveDirection(helper, map.getDirection(helper.getCurrentTile(), tile))) {
+								log("Helper " + helper + "Battle Resolution: successfully moved to border by moving to tile " + tile);
+								break;
+							}
+						}
+						
+						if(!antOrders.contains(helper)) {
+							helper.addLog(game.getCurrentTurn(), "Battle Resolution: couldnt find a border, so just headed towards" + ant);
+							log("Couldn't find a border, so just sent " + helper + " towards" + ant);
+							doMoveLocation(helper, ant.getCurrentTile());
+						}
+					}
+
+//					 2 2 1 1 1 0 
+//					 2 2 1 1 1 1 
+//					 2 2E1 1 1 1 
+//					 2 1 1 1 1 1 
+//					 1 1 1 1 1 0 
+//					 0 1 1 1A0 0 
+//					 0 0 0 0A0 0 
+//					 0 0 0 0 0 0 
+
+
+					
+				}
+				// Run away
+				else {
+					log("No help found, run away");
+					
+					// TODO: This should be smart about running away, but this is fine for now
+					// to get opposite directions, just aim the enemy at me
+					List<Aim> dirOpposites = map.getDirections(tileClosestEnemy, ant.getCurrentTile());
+
+					ant.addLog(game.getCurrentTurn(), "Battle Resolution: couldn't find help, so I tried to run away");
+					for(Aim aim: dirOpposites) {
+						if(doMoveDirection(ant, aim)) {
+							log("My ant " + ant + " ran away from " + tileClosestEnemy + " by moving " + aim);
+							break;
+						}
+					}
+				}
+			}
+   			
+//    		int enemyheat = hmNextMyAttackVsEnemyDelta.getHeat(tileClosestEnemy);
+//    			
+//    		if(enemyheat > 0) {
+//        		log("Enemy at at " + tileClosestEnemy + " is fucked, sending: " + mapEnemyToMyCloseByAnts.get(tileClosestEnemy));
+//    			moveAnts(mapEnemyToMyCloseByAnts.get(tileClosestEnemy), tileClosestEnemy);
+//    		}
+//    		else {
+//    		}
+    	}
+    	
+    	// Priority 1: Hill Defense
+    	log("[" + game.getTimeRemaining() + "] Begin hill defense");
+    	
+    	// Only need to defend the hill if our hill defense HeatMap popped up an issue
+    	SortedMap<Integer, Pair<Ant, Tile>> enemyDist = new TreeMap<Integer, Pair<Ant, Tile>>();
+    	if(hmHillDefense.hasHeat())
     	{
-    		if(game.getTimeRemaining() < 100) { break; }
-    		for(Ant ant: myAnts)
+	        for (Tile enemyAnt: map.getAllEnemyAntTiles()) {
+	        	Integer distFromHill = map.getDistance(new Tile(9, 65), enemyAnt);
+	        	if(distFromHill < HILL_DEFENSE_RADIUS) {
+		    		for(Ant ant : map.getAllFriendlyAnts()) {
+		            	if(game.getTimeRemaining() < 100) { break; }
+
+		    			Integer dist = map.getDistance(ant.getCurrentTile(), enemyAnt);
+
+		                if(dist < Integer.MAX_VALUE) {
+		                	enemyDist.put(dist, new Pair<Ant, Tile>(ant, enemyAnt));
+		                }
+		            }
+	        	}
+	        }    		
+    	}
+
+       	for (Map.Entry<Integer, Pair<Ant, Tile>> closeEnemyMap : enemyDist.entrySet())
+       	{
+        	if(game.getTimeRemaining() < 100) { break; }
+
+           	Pair<Ant, Tile> pairTemp = closeEnemyMap.getValue();
+        	
+    		if (!enemyDefenseClaimed.contains(pairTemp.second)) 
     		{
-    			Integer dist = game.getClosestDistanceAfterTurns(ant.getCurrentTile(), enemyAnt,2);
-    			//log("looking at enemy at location " + enemyAnt + " and I'm " + dist + " away while the spawn radius is " + game.getAttackRadius2());
-
-    			// if(dist <= game.getSpawnRadius2()+3){ // old code
-    			if(dist <= game.getAttackRadius2()) 
-    			{
-    				log("Ant " + ant + " is dangerously close to ant at location " + enemyAnt + " (d:" + dist + ") and spanw radius squared is " + game.getAttackRadius2());
-    							
-    				dangerAnts.add(ant);
-    				if(!enemyByAnt.containsKey(ant)){
-    					enemyByAnt.put(ant,new LinkedList<Tile>());
+            	if(!antOrders.contains(pairTemp.first))
+            	{
+            		pairTemp.first.addLog(game.getCurrentTurn(), "Hill Defense: We're under attack: " + pairTemp.first.getCurrentTile() + " | " +  pairTemp.second);
+            		
+    				if(doMoveLocation(pairTemp.first, pairTemp.second)) {
+    			    	log("[" + game.getTimeRemaining() + "] We're under attack: " + pairTemp.first.getCurrentTile() + " | " +  pairTemp.second);
+    					enemyDefenseClaimed.add(pairTemp.second);
     				}
-    				enemyByAnt.get(ant).add(enemyAnt);
-    				if(!antByEnemy.containsKey(enemyAnt)){
-    					antByEnemy.put(enemyAnt, new LinkedList<Ant>());
-    				}
-    				antByEnemy.get(enemyAnt).add(ant);
-    			}
-    		}
-    	}
+            	}
+            }
+        }
     	
-    	log("[" + game.getTimeRemaining() + "] Begin issuing BR moves");
+    	log("[" + game.getTimeRemaining() + "] Begin checking food distances");
 
-    	// CURRENTLY JUST DOING "RUN AWAY!"
-    	
-    	for(Ant ant: dangerAnts){
-    		
-    		if(!antOrders.contains(ant)){
-    			// find the closest ant
-    			
-    			int nearestFoeDistance = Integer.MAX_VALUE;
-    			Tile nearestFoe = null;
-    			
-    			for(Tile t:  enemyByAnt.get(ant)){
-    				if(game.getDistance(t, ant.getCurrentTile())<nearestFoeDistance){
-    					nearestFoeDistance = game.getDistance(t, ant.getCurrentTile());
-    					nearestFoe = t;
-    				}						
-    			}
-    			
-
-    			log("Its foe is " + nearestFoe);
-    			
-    			// DON'T DO CRAP!
-    			
-//    			List<Aim> la = game.getDirections(ant.getCurrentTile(),nearestFoe);
-//    			if(la.size() > 0){
-//    				Aim newDirection = Aim.getOpposite(game.getDirections(ant.getCurrentTile(),nearestFoe).get(0));
-//    				doMoveDirection(ant, newDirection);
-//    				ant.addLog(game.getCurrentTurn(), "Running away from from foe at " + nearestFoe);
-//    				
-//    			}
-    			
-    		}
-
-    	}
-    	
-    	/*
-    	THIS IS OLD CODE FOR ISSUEING BR MOVES THAT ONLY ATTACKED WHEN THERE WHERE MORE OF US THAN THEM
-    	BUT IT WAS REALLY FLAKEY
-    	UPDATE TO "HEAT MAP" MODE INSTEAD
-    	HERE FOR REFERENCE
-    	
-    	//for(Map.Entry<Integer,Ant> antEntry:dangerAnts.entrySet()){
-    	for(Ant ant: dangerAnts){
-    		
-    		// Ok, so we are looping through my ants that have the closest foe.
-    		// Need to check to see how many enemy ants that this ant can see
-    		// Need to check to see how many of my ants that he can see
-    		
-    		//Ant ant = antEntry.getValue();
-    		int numberFoes = enemyByAnt.get(ant).size();
-    		
-
-    		log("This ant is under attack " + ant);
-    		
-    		if(!antOrders.contains(ant)){
-    			
-    			// find the closest ant
-    			
-    			int nearestFoeDistance = Integer.MAX_VALUE;
-    			Tile nearestFoe = null;
-    			
-    			for(Tile t:  enemyByAnt.get(ant)){
-    				if(game.getDistance(t, ant.getCurrentTile())<nearestFoeDistance){
-    					nearestFoeDistance = game.getDistance(t, ant.getCurrentTile());
-    					nearestFoe = t;
-    				}						
-    			}
-    			
-
-    			log("Its foe is " + nearestFoe);
-    			
-    			int numberAllies = antByEnemy.get(nearestFoe).size();
-    			
-    			
-    		
-    			if(numberFoes < numberAllies){
-    				log("ATTACK");
-    				// ATTACK
-    				doMoveLocation(ant,nearestFoe);
-    				for(Ant myAlly:antByEnemy.get(nearestFoe)){
-    					doMoveLocation(myAlly, nearestFoe);
-    					//dangerAnts.remove(myAlly);
-    				}
-    			} else {
-    				log("RUN");
-    				// Just sit there
-    				
-    				List<Aim> la = game.getDirections(ant.getCurrentTile(),nearestFoe);
-    				if(la.size() > 0){
-    					Aim newDirection = Aim.getOpposite(game.getDirections(ant.getCurrentTile(),nearestFoe).get(0));
-    					doMoveDirection(ant, newDirection);
-    					antOrders.add(ant);
-    					for(Ant myAlly:antByEnemy.get(nearestFoe)){
-    						doMoveDirection(myAlly, newDirection);
-    						antOrders.add(myAlly);
-    						//dangerAnts.remove(myAlly);
-    					}
-    				} else {
-    					antOrders.add(ant);
-    					for(Ant myAlly:antByEnemy.get(nearestFoe)){
-    						antOrders.add(myAlly);
-    						//dangerAnts.remove(myAlly);
-    					}
-    					
-    				}
-    				
-    				
-    			}
-    		}
-    	}
-*/    	
-    	
-       	log("[" + game.getTimeRemaining() + "] Begin checking food distances");
-
-        // Priority 1: food | For each visible food, send the closest ant
-
+        // Priority 2: food | For each visible food, send the closest ant
         Set<Tile> foodClaimed = new HashSet<Tile>();
         Map<Ant,Integer> antFoodDistance= new HashMap<Ant,Integer>();
         
         TreeMultiMap<Integer, Pair<Ant, Tile>> antDist = new TreeMultiMap<Integer, Pair<Ant, Tile>>();
-        
-        for (Tile foodLoc : game.getFoodTiles()) 
+
+        for (Tile foodLoc : map.getAllFoodTiles()) 
         {
-    		for(Ant ant : myAnts)
+    		for(Ant ant : map.getAllFriendlyAnts())
             {
             	if(game.getTimeRemaining() < 100) { break; }
     			logcrash("[" + game.getTimeRemaining() + "] Calculating Food: " + foodLoc + " | " + ant.getCurrentTile());
 
     			Integer dist = Integer.MAX_VALUE;
     			
-    			if(myAnts.size()<10)
+    			if(map.getAllFriendlyAnts().size()<10)
     				dist=ps.getDistance(ant.getCurrentTile(), foodLoc);
     			else
-    				dist=game.getDistance(ant.getCurrentTile(), foodLoc);
+    				dist=map.getDistance(ant.getCurrentTile(), foodLoc);
     			
                 if(dist < Integer.MAX_VALUE) {
             
@@ -442,121 +401,73 @@ public class MyBot extends Bot {
        	
        	TreeMultiMap<Integer,Pair<Ant,Tile>> foodMoves = new TreeMultiMap<Integer,Pair<Ant,Tile>>();
        	
-       	for(TreeMultiMap.Entry<Integer, Pair<Ant, Tile>> foodDist : antDist.entryList()){
-
+       	for(TreeMultiMap.Entry<Integer, Pair<Ant, Tile>> segment : antDist.entryList())
+       	{
+       		Tile segmentFood = segment.getValue().second;
+       		Ant segmentAnt = segment.getValue().first;
+       		int segmentLength = segment.getKey();
+       		
+       		
+       		
        		if(game.getTimeRemaining() < 100) { break; }
 
-       		// We don't want to go for food too far away
-       		if(foodDist.getKey() > 25) {
-       			// continue;
-       		}
-       		if (!foodClaimed.contains(foodDist.getValue().second) && !antFoodDistance.containsKey(foodDist.getValue().first)) {
+       		if (!foodClaimed.contains(segmentFood) && !antFoodDistance.containsKey(segmentAnt)) 
+       		{
 
-       			logcrash("[" + game.getTimeRemaining() + "] Trying food route: " + foodDist.getValue().first + " | " + foodDist.getValue().second);
+       			logcrash("[" + game.getTimeRemaining() + "] Trying food route: " + segmentAnt + " | " + segmentFood);
 
        			/*
             		if(!foodMoves.containsKey(dist)){
             			foodMoves.put(dist,new LinkedList<Pair<Ant,Tile>>());
             		}
        			 */
-       			for(TreeMultiMap.Entry<Integer,Pair<Ant,Tile>> fm: foodMoves.entryList()){
+       			for(TreeMultiMap.Entry<Integer,Pair<Ant,Tile>> previousMove: foodMoves.entryList())
+       			{
+       				Tile previousMoveFood = previousMove.getValue().second;
+       				Ant previousMoveAnt = previousMove.getValue().first;
+       				
+       				
+       				
        				int distance;
-       				if(myAnts.size() < 10){
-       					distance = ps.getDistance(fm.getValue().second, foodDist.getValue().second);
+       				// TODO: figure out the best way to use ps searches here.
+       				if(map.getAllFriendlyAnts().size() < 10){
+       					distance = ps.getDistance(previousMoveFood, segmentFood);
        				} else {
-       					distance = game.getDistance(fm.getValue().second, foodDist.getValue().second);
+       					distance = map.getDistance(previousMoveFood, segmentFood);
        				}
 
-       				distance += antFoodDistance.get(fm.getValue().first)-1;
+       				distance += antFoodDistance.get(previousMoveAnt)-1;
 
-       				if(distance < foodDist.getKey()+2){
+       				if(distance < segmentLength){
        					// EASIER TO JUST SEND THIS DUDE
-       					foodClaimed.add(foodDist.getValue().second);
-       					antFoodDistance.put(fm.getValue().first, distance);
+
+       					previousMoveAnt.addLog(game.getCurrentTurn(), "I'm hungry - also gonna grab " + segmentFood);
+
+       					foodClaimed.add(segmentFood);
+       					antFoodDistance.put(previousMoveAnt, distance);
        				}
 
        			}
-       			if(!foodClaimed.contains(foodDist.getValue().second)){
+       			if(!foodClaimed.contains(segmentFood)){
        				// this food still isn't claimed, so have this guy do it.
-       				foodClaimed.add(foodDist.getValue().second);
-       				antFoodDistance.put(foodDist.getValue().first, foodDist.getKey());
-       				foodMoves.put(foodDist.getKey(), new Pair<Ant,Tile>(foodDist.getValue().first, foodDist.getValue().second));
+       				foodClaimed.add(segmentFood);
+       				antFoodDistance.put(segmentAnt, segmentLength);
+       				foodMoves.put(segmentLength, new Pair<Ant,Tile>(segmentAnt, segmentFood));
        				// move this guy.
 
-       				foodDist.getValue().first.addLog(game.getCurrentTurn(), "Gonna grab me some food at  " + foodDist.getValue().second);
-       				doMoveLocation(foodDist.getValue().first, foodDist.getValue().second);
-
-
-
+       				segmentAnt.addLog(game.getCurrentTurn(), "Gonna grab me some food at  " + segmentFood);
+       				doMoveLocation(segmentAnt, segmentFood);
        			}
-       			//foodMoves.put(foodDist.getKey(),new Pair<Ant,Tile>(foodDist.getValue().first,foodDist.getValue().second));
-       			//foodClaimed.add(foodDist.getValue().second);
-
-       			//antFoodDistance.put(foodDist.getValue().first, foodDist.getKey());
-
-
        		}
-
        	}
 
-       	// I loop through the ordered list of food twice, sorted by order to save work.
-       	// For a given food order, i look to see if its quicker for another ant with a shorter distance to already go to pick up its food, then go to the food that I want to go to
-       	// If so, I basically say that this order is null and void.
-       	// Note: this isn't perfect.  Technically I should then make that ant have a longer route (last route + distance to food), but this data structure is ordered by distance, and I think changing the distance would break something
-//       	log("[" + game.getTimeRemaining() + "] Culling Food Routes that aren't needed.  Checking # of food Routes: " + foodMoves.size());
-//       	Set<Ant> cancelFoodOrder = new HashSet<Ant>();
-//       	for(TreeMultiMap.Entry<Integer,Pair<Ant,Tile>> outerMove : foodMoves.entryList()){
-//       		if(game.getTimeRemaining() < 100) { break; }
-//       		log("[" + game.getTimeRemaining() + "] Checking outer food loop with distance of " + outerMove.getKey() + " and containing order " + outerMove.getValue());
-//       		for(TreeMultiMap.Entry<Integer,Pair<Ant,Tile>> innerMove : foodMoves.entryList()){
-//       			log("[" + game.getTimeRemaining() + "] - Checking inner food loop with distance of " + innerMove.getKey() + " and containing order " + innerMove.getValue());
-//       			if(game.getTimeRemaining() < 100) { break; }
-//       			if(outerMove.equals(innerMove)){
-//       				break;
-//       			}
-//       			log("[" + game.getTimeRemaining() + "] - - Still checking that loop " + innerMove.getKey() + " and containing order " + innerMove.getValue());
-//       			// Since its important to get off to a good start, I figured it would be worthwhile to do a real distance search if there aren't all that many food items to pick up
-//       			// Probably should do something generic with this
-//       			int distance;
-//       			if(game.getFoodTiles().size() < 5){
-//       				distance = ps.getDistance(innerMove.getValue().second, outerMove.getValue().second);
-//       			} else {
-//       				distance = game.getDistance(innerMove.getValue().second, outerMove.getValue().second);
-//       			}
-//       			
-//       			
-//       			if(antFoodDistance.containsKey(innerMove.getValue().first)){
-//       				distance += antFoodDistance.get(innerMove.getValue().first);
-//       			}
-//       			if(innerMove.getKey() + distance < outerMove.getKey()){
-//       				log("[" + game.getTimeRemaining() + "]  - - Don't bother sending ant " + outerMove.getValue().first + " to " + outerMove.getValue().second + " Because we may as well send ant #" + innerMove.getValue().first + " a location " + innerMove.getValue().second);
-//       				cancelFoodOrder.add(outerMove.getValue().first);
-//       				antFoodDistance.put(innerMove.getValue().first, distance);
-//       				
-//       			}				
-//       		}
-//       	}
-//    
-  		// Now actually pick up the food!
-//  		log("[" + game.getTimeRemaining() + "] Issue Food Routes (after removing  " + cancelFoodOrder.size() + " orders)");
-//  		
-//  		for(TreeMultiMap.Entry<Integer,Pair<Ant,Tile>> moves : foodMoves.entryList()){
-//  				if(game.getTimeRemaining() < 100) { break; }
-//  				
-//  				if(!cancelFoodOrder.contains(moves.getValue().first) && !antOrders.contains(moves.getValue().first)){
-//  					doMoveLocation(moves.getValue().first, moves.getValue().second);
-//  					moves.getValue().first.addLog(game.getCurrentTurn(), "Getting food at location " +moves.getValue().second);
-//  				}
-//  		}
-      	
-       	
       	log("[" + game.getTimeRemaining() + "] Begin checking hill distances");
 
-       	// Priority 2: attack hills | Any ant not grabbing food should head to an enemy hill if we see one
+       	// Priority 3: attack hills | Any ant not grabbing food should head to an enemy hill if we see one
         TreeMultiMap<Integer, Pair<Ant, Tile>> hillDist = new TreeMultiMap<Integer, Pair<Ant, Tile>>();
-        for (Tile tileHill : enemyHills) 
+        for (Tile tileHill : map.getAllEnemyHills()) 
         {
-            for(Ant ant : myAnts) 
+            for(Ant ant : map.getAllFriendlyAnts()) 
             {
             	if(game.getTimeRemaining() < 100) { break; }
 
@@ -564,9 +475,9 @@ public class MyBot extends Bot {
                    	logcrash("[" + game.getTimeRemaining() + "] Checking enemy hills: Ant: " + ant + " | " + tileHill);
 
                    	// int dist = ps.getDistance(ant.getCurrentTile(), tileHill);
-                   	int dist = game.getDistance(ant.getCurrentTile(), tileHill);
+                   	int dist = map.getDistance(ant.getCurrentTile(), tileHill);
                     
-                   	// Only send ants within 100 radius
+                   	// TODO: we should be smarter about this
                    	if(dist < 100) {
                     	hillDist.put(dist, new Pair<Ant, Tile>(ant, tileHill));
                     }
@@ -582,79 +493,105 @@ public class MyBot extends Bot {
            	logcrash("[" + game.getTimeRemaining() + "] Attempting hill move : " + entry.getValue().first + " | " + entry.getValue().second);
 
         	if(!antOrders.contains(entry.getValue().first)) {
+        		
+        		entry.getValue().first.addLog(game.getCurrentTurn(), "Attacking enemy base because I'm close enough: " + entry.getValue().second);
+
         		doMoveLocation(entry.getValue().first, entry.getValue().second);
         		entry.getValue().first.addLog(game.getCurrentTurn(), "Attacking hill at " + entry.getValue().second);
         	}
         }       	
-       	
+       	       	
       	log("[" + game.getTimeRemaining() + "] Send ants to Previous destinations");
 
-     // Priority 4a: Give new ants initial path if they would not have had one by above logic
-      	int CLOSEST_ANT_TO_HILL_THRESHOLD = 100; 
-      	for (Iterator<Ant> antIter = newAnts.iterator(); antIter.hasNext(); ) 
+    	// Priority 4a: If ant was previously given a path, have them follow it
+		for(Ant ant : map.getAllFriendlyAnts())
+        {
+			if(ant.hasPath() && !antOrders.contains(ant)) {
+				ant.addLog(game.getCurrentTurn(), "Attempting to resume existing path to " + ant.getDestination());
+				doMoveLocation(ant, ant.getDestination());
+			}
+        }
+      	
+    	// Priority 4b: Ant is an explorer if one of their horizon tiles is invisible
+		for(Ant ant : map.getAllFriendlyAnts()) 
+		{
+			if(!antOrders.contains(ant)) 
+			{
+				log("Looking for horizon for ant " + ant);
+				Set<Tile> setTilesHorizon = map.findHorizen(ant);
+				if(setTilesHorizon.size() > 0) {
+					log("Found horizon tiles for ant " + ant + " : " + setTilesHorizon);
+					Tile closestHill = map.getClosestLocation(ant.getCurrentTile(), map.getFriendlyHills());
+					Tile tileFarthest = map.getFarthestLocation(closestHill, setTilesHorizon);
+
+					// TODO: CANT JUST DO A DOMOVELOCATION HERE
+					ant.addLog(game.getCurrentTurn(), "Attempting blind horizon move to " + tileFarthest);
+					if(map.isOnHill(ant) || !doMoveInDirection(ant, tileFarthest)) {
+						doMoveLocation(ant, tileFarthest);
+					}
+				}
+			}
+        }
+
+    	// Priority 4c: Give new ants initial path if they would not have had one by above logic
+      	int CLOSEST_ANT_TO_HILL_THRESHOLD = 100;
+      	for (Iterator<Ant> antIter = map.getNewFriendlyAnts().iterator(); antIter.hasNext(); ) 
       	{
 	        Ant ant = antIter.next();
 	        int iClosestAnt = Integer.MAX_VALUE;
 	        if(!antOrders.contains(ant)) 
 	        {
 	        	Tile tileClosestEnemy = null;
-	        	if(game.getEnemyAnts().size() > 0) {
-	        		tileClosestEnemy = game.getClosestLocation(ant.getCurrentTile(), game.getEnemyAnts());
-		        	iClosestAnt = game.getDistance(ant.getCurrentTile(), tileClosestEnemy); 
+	        	if(map.getAllEnemyAntTiles().size() > 0) {
+	        		tileClosestEnemy = map.getClosestLocation(ant.getCurrentTile(), map.getAllEnemyAntTiles());
+		        	iClosestAnt = map.getDistance(ant.getCurrentTile(), tileClosestEnemy); 
 	        	}
 	        	
 	        	if(iClosestAnt < CLOSEST_ANT_TO_HILL_THRESHOLD) {
 	              	log("[" + game.getTimeRemaining() + "] [NEW ANT] Mofo is too close... sending new ant at " + tileClosestEnemy);
-		         	doMoveLocation(ant, tileClosestEnemy);
+					ant.addLog(game.getCurrentTurn(), "New ant [defense] mofo is too close... sending new ant at " + tileClosestEnemy);
+	              	doMoveLocation(ant, tileClosestEnemy);
 	        	}
-	        	else if(enemyHills.size() > 0) {
-	        		Tile tileClosestHill = game.getClosestLocation(ant.getCurrentTile(), enemyHills);
+	        	else if(map.getAllEnemyHills().size() > 0) {
+	        		Tile tileClosestHill = map.getClosestLocation(ant.getCurrentTile(), map.getAllEnemyHills());
 	              	log("[" + game.getTimeRemaining() + "] [NEW ANT] We see a hill... send ant to " + tileClosestHill);
+					ant.addLog(game.getCurrentTurn(), "New ant [attack] We see a hill... send ant to " + tileClosestHill);
 		         	doMoveLocation(ant, tileClosestHill);
 	        	}
 	        	else {
-	              	log("[" + game.getTimeRemaining() + "] [NEW ANT] Sending new ant to next hill location");
 	              	List<Tile> myTargets = hillStartTargets.get(ant.getCurrentTile());
 
-	              	log("[" + game.getTimeRemaining() + "] [NEW ANT] myTargets: " + myTargets);
-
 	              	int iNumTargetsForHill = myTargets.size();  
-
-	              	log("[" + game.getTimeRemaining() + "] [NEW ANT] iNumTargetsfForHill: " + iNumTargetsForHill);
 
 	              	// Get the target offset we want to use for this ant
 	              	int iPrevAnts = antsSentRandomlyFromLocation.get(ant.getCurrentTile());
 	              	antsSentRandomlyFromLocation.put(ant.getCurrentTile(), iPrevAnts + 1);
-	        		
-	              	log("[" + game.getTimeRemaining() + "] [NEW ANT] iPrevAnts: " + iPrevAnts);
-	              	log("[" + game.getTimeRemaining() + "] [NEW ANT] iPrevAnts % iNumTargetsForHill: " + iPrevAnts % iNumTargetsForHill);
-
-	              	
 	              	
 	              	Tile next = myTargets.get(iPrevAnts % iNumTargetsForHill);
 
-	              	log("[" + game.getTimeRemaining() + "] [NEW ANT] Sending to corner " + next);
+	              	log("[" + game.getTimeRemaining() + "] [NEW ANT] Sending new ant to next hill location: " + next);
 
 	              	// TODO: if this target is invalid, the ant will immediately go into heatmap mode, need to 
 	              	// retry another path and remove the old one
-	              	doMoveLocation(ant, next);
+	              	if(map.getIlk(next) != Ilk.WATER) {
+						ant.addLog(game.getCurrentTurn(), "New ant [start locations] send ant to " + next);
+	              		doMoveLocation(ant, next);
+	              	}
+	              	else {
+	              		// For now, just remove a tile from our targets if it is water
+	              		// TODO: we should handle this better
+	              		hillStartTargets.get(ant.getCurrentTile()).remove(next);
+	              		log("[" + game.getTimeRemaining() + "] [NEW ANT] Target was water, so I've removed it: " + next);
+	              	}
 	        	}
 	        }
          	antIter.remove();
         }
-      	
-       	// Priority 3: Have ants follow a path if they have one
-		for(Ant ant : myAnts)
-        {
-			if(ant.hasPath() && !antOrders.contains(ant)) {
-				doMoveLocation(ant, ant.getDestination());
-			}
-        }
-
+		
       	log("[" + game.getTimeRemaining() + "] Begin heatmap flurry");
 
-       	// Priority 4: map coverage | Use the heat map to get optimal map coverage
-        for(Ant ant : myAnts)
+       	// Priority 5: map coverage | Use the heat map to get optimal map coverage
+        for(Ant ant : map.getAllFriendlyAnts())
         {
         	if(!antOrders.contains(ant))
         	{
@@ -663,54 +600,49 @@ public class MyBot extends Bot {
 
         		int lowestVal = Integer.MAX_VALUE;
         		Aim d = Aim.NORTH;
-        		int x = ant.getCurrentTile().getCol();
-        		int y = ant.getCurrentTile().getRow();
         		
         		List<Aim> dir = new ArrayList<Aim>();
         		for(Aim aim: Aim.values())
         		{
-        			if(harvestorHeatMap[(ROWS+y+ aim.getRowDelta())%ROWS][(COLS+x+ aim.getColDelta())%COLS] < lowestVal){
+        			heat = hmFlurry.getHeat(ant.getCurrentTile(), aim);
+        			
+        			if(heat < lowestVal){
         				dir.clear();
-        				lowestVal = harvestorHeatMap[(ROWS+y+aim.getRowDelta())%ROWS][(COLS+x+aim.getColDelta())%COLS];
+        				lowestVal = heat;
         				dir.add(aim);
-        			} else if (harvestorHeatMap[(ROWS+aim.getRowDelta())%ROWS][(COLS+aim.getColDelta())%COLS] == lowestVal){
+        			} else if (heat == lowestVal){
         				dir.add(aim);        				
         			}
         		}
         		
         		log("have " + dir.size() + " options! And lowestval is " + lowestVal);
+
+        		// choose a random direction
         		if(dir.size() > 0){
         			d = dir.get(new Random().nextInt(dir.size()));
-        		
         		}
 
         		// This would move the ant around walls if it hit them
         		// doMoveDirectionNextPassible(ant,d); // This will put you on a path to go around objects if you run into a wall
-
-        		// choose a random direction
-        		if(!doMoveLocation(ant, game.getTile(ant.getCurrentTile(), d, iViewSpaces))) {
-        			doMoveDirection(ant, d);
-        		}
-        		 ant.addLog(game.getCurrentTurn(), "Doing a heatmap move.  have " + dir.size() + " options! And lowestval is " + lowestVal);
+        		// TODO: decide what we want to do here. In theory we'd want to send the ant to the closest invisible or unexplored tile
+        		// if(!doMoveLocation(ant, map.getTile(ant.getCurrentTile(), d, 6))) {
+				ant.addLog(game.getCurrentTurn(), "Heatmap flurry... going " + d);
+        		doMoveDirection(ant, d);
+        		// } 
         	}
         }
 
-
-      	log("[" + game.getTimeRemaining() + "] Moving guys off hill");
-      	
         // TODO: Can this be taken care of in the doMoveLocation function?
-        for (Tile myHill : game.getMyHills()) 
+        for (Tile myHill : map.getFriendlyHills()) 
 		{
-    		if (myAntLocations.containsKey(myHill) && !antOrders.contains(myAntLocations.get(myHill))) 
-    		{
-            	Ant ant = myAntLocations.get(myHill);
-                for (Aim direction : Aim.values()) 
-                {
-
-                    if (doMoveDirection(ant, direction)) 
-                    {
-
-                    	ant.addLog(game.getCurrentTurn(), "Moved myself off the hill at location " + myHill);
+        	boolean bAntOnMyHill = map.getAllFriendlyAntTiles().contains(myHill);
+    		Ant antOnMyHill = map.getLocationAntMap().get(myHill);
+        	
+    		// If there is an ant on my hill and they don't have orders, move them off
+        	if (bAntOnMyHill && !antOrders.contains(antOnMyHill)) {
+                for (Aim direction : Aim.values()) {
+    				antOnMyHill.addLog(game.getCurrentTurn(), "Attempting to move off the hill");
+                    if (doMoveDirection(map.getLocationAntMap().get(myHill), direction)) {
                         break;
                     }
                 }
@@ -719,23 +651,29 @@ public class MyBot extends Bot {
         
         // Which ants haven't been issued an order?
       	log("[" + game.getTimeRemaining() + "] Which ants haven't been issued an order?");
-		for(Ant ant : myAnts)
+		for(Ant ant : map.getAllFriendlyAnts())
         {
 			if(!antOrders.contains(ant)) {
 				log("No orders for ant " + ant + " [" + ant.getCurrentTile() + "]");
-				ant.addLog(game.getCurrentTurn(), "I wasn't told to do anything!");
 			}
         }
+ 
 		
-		log("TURN RECAP------------------------------------------------");
-		for(Ant ant: myAnts){
-			log(ant.getLastLog());
-			
-		}
-        
+		log("\n\n\n\n\n********************** Beginning Ant Dump for turn " + game.getCurrentTurn() + " **********************");
+		for(Ant ant : map.getAllFriendlyAnts())
+        {
+			LinkedList<String> list = ant.getOrderLog(game.getCurrentTurn()); 
+			if(list != null) {
+				for(String str: list) {
+					log("[" + game.getCurrentTurn() + "]" + ant + ": " + str);
+				}
+        	}	
+        }
+		
         log("End Turn | Remaining time: " + game.getTimeRemaining() + " | Cache size: " + ps.size());
+		log("\n\n\n\n\n");
     }
-    
+ 
     public boolean doMoveLocation(Ant ant, Tile destLoc) 
     {
     	// TODO: This should never happen, but it was happening in the play_one_game.cmd
@@ -763,7 +701,7 @@ public class MyBot extends Bot {
         if(path != null) 
         {
         	ant.setPath(path);
-        	List<Aim> directions = game.getDirections(ant.getCurrentTile(), path.start());
+        	List<Aim> directions = map.getDirections(ant.getCurrentTile(), path.start());
         	
 	        for (Aim direction : directions) {
 	            if (this.doMoveDirection(ant, direction)) {
@@ -780,35 +718,57 @@ public class MyBot extends Bot {
 			return true;
 		}
 		else {
-			return doMoveLocation(ant, game.getTileNextPassible(ant.getCurrentTile(), direction));
+			return doMoveLocation(ant, map.getTileNextPassible(ant.getCurrentTile(), direction));
 		}
 	}
 
+//	private boolean movePossible(Ant ant, Aim direction) 
+//	{
+//		Tile tileTo = map.getTile(ant.getCurrentTile(), direction);
+//    	
+//		return !map.getLocationAntMap().containsKey(tileTo) && map.getIlk(tileTo).isPassable();
+//	}
+	
+	// Attempts to move to Tile without doing an AStar search
+	public boolean doMoveInDirection(Ant ant, Tile tile) {
+		List<Aim> directions = map.getDirectionsMostAggressive(ant.getCurrentTile(), tile, new Tile(0, 0));
 
-    public boolean doMoveDirection(Ant ant, Aim direction) 
+		for (Aim direction : directions) {
+            if (this.doMoveDirection(ant, direction)) {
+                return true;
+            }
+        }
+        return false;
+	}
+	
+	public boolean doMoveDirection(Ant ant, Aim direction) 
     {
-    	if(antOrders.contains(ant)) {
+		log("Ant " + ant + ": attempting to move " + direction);
+
+		if(ant == null) {
+    		log("ERROR: doMoveDirection: ant is null");
+		}
+    	
+		if(antOrders.contains(ant)) {
     		log("ERROR: doMoveDirection: attempt to issue duplicate order for ant [" + ant.getCurrentTile() + "]: Direction [" + direction + "]");
     		return false;
     	}
     	
     	// Track all moves, prevent collisions
-        Tile newLoc = game.getTile(ant.getCurrentTile(), direction);
+        Tile newLoc = map.getTile(ant.getCurrentTile(), direction);
 
         // isUnoccupied isn't necessarily correct - need to figure out what to put here
-        if (game.getIlk(newLoc).isMovable()) 
+        if (map.getIlk(newLoc).isMovable()) 
         {
-        	if(myAntLocations.containsKey(newLoc))
+        	if(map.getLocationAntMap().containsKey(newLoc))
         	{
-        		queueOrders.put(myAntLocations.get(newLoc), new Pair<Ant, Aim>(ant, direction));
+        		queueOrders.put(map.getLocationAntMap().get(newLoc), new Pair<Ant, Aim>(ant, direction));
         		return false;
         	}
         	else {
                 game.issueOrder(ant.getCurrentTile(), direction);
-                myAntLocations.remove(ant.getCurrentTile());
-                myAntLocations.put(newLoc, ant);
+                map.moveAnt(ant, newLoc);
                 antOrders.add(ant);
-                ant.move(newLoc);
 
                 // Attempt to run a dependent move
                 if(queueOrders.containsKey(ant)) {
@@ -821,631 +781,133 @@ public class MyBot extends Bot {
         	}
 
         } else {
+        	log("Ant " + ant + " attempted to move to unmovable tile " + newLoc + " with ILK " + map.getIlk(newLoc));
             return false;
         }
     }
-        
-    private void calculateHeatMap()
-    {
-    	// int distance = Math.min(20, Math.min(this.COLS, ROWS)-2);
-    	int distance = (int) Math.min(Math.floor(Math.sqrt(game.getViewRadius2())), 10);
-    	
-    	// log("Heatmap Distance: " + distance);
 
-    	for(Ant ant:myAnts)
+	
+	
+    public boolean moveAnts(Set<Ant> ants, Tile target)
+    {
+    	int iMoved = 0;
+    	for(Ant ant: ants) 
     	{
-    		for(int y = distance-1 ; y > distance * -1; y--)
-    		{
-    			for(int x = distance-1; x > distance * -1; x--)
-    			{
-    				int newcol = (COLS+ x+ant.getCurrentTile().getCol()) % COLS;
-    				int newrow = (ROWS+ y+ant.getCurrentTile().getRow()) % ROWS;
-    				if(game.getIlk(new Tile(newrow, newcol)).isMovable()){
-    					
-//    			    	log("sqrt: "+ Math.sqrt((Math.pow(distance-Math.abs(x), 2) + Math.pow(distance-Math.abs(y), 2))));
-    					
-    					// harvestorHeatMap[newcol][newrow] += (int)Math.floor(Math.sqrt((Math.pow(distance - 1 - Math.abs(x), 2) + Math.pow(distance - 1 - Math.abs(y), 2))));
-    					harvestorHeatMap[newrow][newcol] += distance + 2 - Math.min(Math.abs(x) + Math.abs(y), distance + 2);
-    				
-    				} else {
-    					harvestorHeatMap[newrow][newcol] = Integer.MAX_VALUE;
-    				}
-    			}
+    		// getHottestNeighbor(Tile t) {
+    		
+    		if(doMoveLocation(ant, target)) {
+    			iMoved++;
     		}
     	}
-
-//    	distance = 3;
-//    	for(Tile waterTile:game.getWaterTiles()){
-//    		for(int y = distance-1 ; y > distance * -1; y--){
-//    			for(int x = distance-1; x> distance * -1; x--){
-//    				int newcol = (COLS+ x+waterTile.getCol()) % COLS;
-//    				int newrow = (ROWS+ y+waterTile.getRow()) % ROWS;
-//    				if(game.getIlk(new Tile(newrow,newcol)).isPassable()){
-//    					// harvestorHeatMap[newcol][newrow] += Math.pow((distance-Math.abs(x)+distance-Math.abs(y)),2);
-//    					 harvestorHeatMap[newcol][newrow] += 1;
-//    				} else {
-//    					harvestorHeatMap[newcol][newrow] = -1;
-//    				}
-//    			}
-//    			
-//    		}
-//    	}
     	
-//    	//    	/*
-//		log("----------");
-//		for(int r = 0; r<ROWS; r++){
-//			String out = "";
-//			for(int c = 0; c<COLS; c++){
-//    			out = out + " " + ((harvestorHeatMap[r][c] == Integer.MAX_VALUE) ? "-1" : String.format("%02d",harvestorHeatMap[r][c]));
-//    		}
-//    		log(out);
-//    	}
-//		log("----");
-//		//    	*/
+    	log("moveAnts: was able to move " + iMoved + " ants out of " + ants.size());
+    	
+    	// We're going to want to make sure we can move all of the ants before just doing it by
+    	// using movePossible(Ant ant, Aim direction)
+       	return true;
     }
-
-    private void calculateEnemyHeatMap()
+    
+    public Set<Tile> getZoneNeighbors(Ant ant, Tile target, Offset offset)
     {
-    	int distance = 15;
+    	Set<Tile> tiles = new HashSet<Tile>();
     	
-    	// log("Heatmap Distance: " + distance);
+		log("getZoneNeighbors: " + ant.getCurrentTile() + " | " + target);
+    	
+       	for (Map.Entry<Tile, Integer> enemyTileMap : offset.getOffsetMap().entrySet()) 
+       	{
+    		Tile tile = map.getTile(target, enemyTileMap.getKey());
+       		log("Checking tile: " + tile);
 
-    	for(Tile tileEnemy: game.getEnemyAnts())
-    	{
-    		for(int y = distance-1 ; y > distance * -1; y--)
-    		{
-    			for(int x = distance-1; x > distance * -1; x--)
-    			{
-    				int newcol = (COLS+ x + tileEnemy.getCol()) % COLS;
-    				int newrow = (ROWS+ y + tileEnemy.getRow()) % ROWS;
-    				if(game.getIlk(new Tile(newrow, newcol)).isMovable()){
-    					enemyHeatMap[newrow][newcol] += distance + 2 - Math.min(Math.abs(x) + Math.abs(y), distance + 2);
-    				
-    				} else {
-    					enemyHeatMap[newrow][newcol] = Integer.MAX_VALUE;
-    				}
-    			}
-    		}
-    	}
+       		if(map.areNeighbors(ant.getCurrentTile(), tile) && (map.getIlk(tile) != Ilk.WATER)) {
+       			tiles.add(tile);
+       		}
+       	}
 
-//    	//    	/*
-//		log("----------");
-//		for(int r = 0; r<ROWS; r++){
-//			String out = "";
-//			for(int c = 0; c<COLS; c++){
-//    			out = out + " " + ((enemyHeatMap[r][c] == Integer.MAX_VALUE) ? "-1" : String.format("%02d",enemyHeatMap[r][c]));
-//    		}
-//    		log(out);
-//    	}
-//		log("----");
-//		//    	*/
+       	if(tiles.size() > 0) {
+    		log("SUCCESSFUL ATTACK: " + ant.getCurrentTile() + " | " + tiles);
+       	}
 
-    	//    	/*
-//		log("----------");
-//		for(int r = 0; r<ROWS; r++){
-//			String out = "";
-//			for(int c = 0; c<COLS; c++){
-//				int diff = 0;
-//				if(!(harvestorHeatMap[r][c] == Integer.MAX_VALUE) && enemyHeatMap[r][c] > harvestorHeatMap[r][c]) {
-//					diff = enemyHeatMap[r][c] - harvestorHeatMap[r][c];
-//				}
-//				
-//				if(game.getMyHills().contains(new Tile(r, c))) {
-//					out = out + " BB";
-//				}
-//				else {
-//					out = out + " " + ((diff > 1000000) ? "-1" : String.format("%02d",diff));
-//				}
-//    		}
-//    		log(out);
-//    	}
-//		log("----");
-		//    	*/
-    
-    
+       	return tiles;
     }
-    
-    
-    
-    
-	private void calculateDeadEnds() {
-		// Looks for segments > 2 in length, then look to see if they trap tiles
-		// on either side
-		int iFirstNorth, iLastNorth, iFirstSouth, iLastSouth;
-		int iSegmentStart = Integer.MAX_VALUE;
-		int iSegmentLen = -1;
-		boolean bThisTileWater;
 
-		String STR_WATER = "*";
-		String STR_UNKNOWN = "_";
-		String STR_LAND = " ";
-		String STR_NORTH = "N";
-		String STR_SOUTH = "S";
-		String STR_EAST = "E";
-		String STR_WEST = "W";
-
-		boolean bWorkingOnPath = false;
-		boolean bRequiresWrap = false;
-		boolean bSkippedBeginning = false;
-		boolean bAllWater;
-		for (int r = 0; r < ROWS; ++r) {
-			bWorkingOnPath = false; // need to special handle wrapping around
-									// the board, so keep track of whether we're
-									// working on a path
-
-			// require wrap if both the first and last spaces are not passable
-			// (water)
-			// bRequiresWrap = !game.isPassible(r, 0) && !game.isPassible(r,
-			// COLS - 1);
-			bRequiresWrap = !game.getIlk(new Tile(r, 0)).equals(Ilk.WATER)
-					&& !game.getIlk(new Tile(r, COLS - 1)).equals(Ilk.WATER);
-			bSkippedBeginning = false;
-			bAllWater = true;
-
-			for (int c = 0; c < COLS || (bWorkingOnPath && !bAllWater); ++c) {
-				int c2 = c % COLS;
-				if (game.isDiscovered(new Tile(r, c2))
-						&& detailedMap[r][c2] == STR_UNKNOWN) {
-					detailedMap[r][c2] = STR_LAND;
-				}
-
-				if (game.getIlk(new Tile(r, c2)).equals(Ilk.WATER)) {
-					// skip if you require wrap and haven't skipped the
-					// beginning yet
-					if (!bRequiresWrap || bSkippedBeginning) {
-						if (game.getIlk(new Tile(r, c2)).equals(Ilk.WATER)) {
-							detailedMap[r][c2] = STR_WATER;
-						}
-						iSegmentLen = (iSegmentStart == Integer.MAX_VALUE) ? 1
-								: ++iSegmentLen;
-						iSegmentStart = (iSegmentStart == Integer.MAX_VALUE) ? c2
-								: iSegmentStart;
-					}
-				} else {
-					bAllWater = false;
-					bWorkingOnPath = false;
-					bSkippedBeginning = true;
-					if (iSegmentLen > 0) {
-						Tile tileStart = new Tile(r, iSegmentStart);
-
-						iFirstNorth = Integer.MAX_VALUE - 100;
-						iLastNorth = -1;
-
-						// don't just look for the first water tile parallel to
-						// the water segment
-						// look one to each side, because those water tiles
-						// would make the rest of
-						// the inner tiles unneeded (see tutorial map for
-						// example)
-						for (int i = -1; i < iSegmentLen + 1; ++i) {
-							Tile t = game.getTile(tileStart, -1, i);
-							bThisTileWater = game.getIlk(t).equals(Ilk.WATER);
-							if (bThisTileWater) {
-								iFirstNorth = Math.min(iFirstNorth, i);
-								iLastNorth = Math.max(iLastNorth, i);
-							}
-						}
-
-						if (iLastNorth - iFirstNorth > 1) {
-							for (int i = iFirstNorth + 1; i < iLastNorth; ++i) {
-								Tile t = game.getTile(tileStart, -1, i);
-								if (detailedMap[t.getRow()][t.getCol()] != STR_WATER) {
-									detailedMap[t.getRow()][t.getCol()] = STR_NORTH;
-									// game.setIlk(t, Ilk.DEADEND);
-								}
-							}
-						}
-
-						iFirstSouth = Integer.MAX_VALUE - 100;
-						iLastSouth = -1;
-
-						for (int i = -1; i < iSegmentLen + 1; ++i) {
-							Tile t = game.getTile(tileStart, 1, i);
-							bThisTileWater = game.getIlk(t).equals(Ilk.WATER);
-							if (bThisTileWater) {
-								iFirstSouth = Math.min(iFirstSouth, i);
-								iLastSouth = Math.max(iLastSouth, i);
-							}
-						}
-
-						if (iLastSouth - iFirstSouth > 1) {
-							for (int i = iFirstSouth + 1; i < iLastSouth; ++i) {
-								Tile t = game.getTile(tileStart, 1, i);
-								if (detailedMap[t.getRow()][t.getCol()] != STR_WATER) {
-									detailedMap[t.getRow()][t.getCol()] = STR_SOUTH;
-									// game.setIlk(t, Ilk.DEADEND);
-								}
-							}
-						}
-						// End south side
-					}
-
-					// Reset the segment start
-					iSegmentLen = -1;
-					iSegmentStart = Integer.MAX_VALUE;
-				}
-			}
-		}
-		// End horizontal pieces
-
-		// Looks for segments > 2 in length, then look to see if they trap tiles
-		// on either side
-		int iFirstWest, iLastWest, iFirstEast, iLastEast;
-		iSegmentStart = Integer.MAX_VALUE;
-		iSegmentLen = -1;
-
-		bWorkingOnPath = false;
-		bSkippedBeginning = true;
-		bAllWater = true;
-		for (int c = 0; c < COLS; ++c) {
-			bWorkingOnPath = false; // need to special handle wrapping around
-									// the board, so keep track of whether we're
-									// working on a path
-
-			// require wrap if both the first and last spaces are not passable
-			// (water)
-			bRequiresWrap = !game.getIlk(new Tile(0, c)).equals(Ilk.WATER)
-					&& !game.getIlk(new Tile(ROWS - 1, c)).equals(Ilk.WATER);
-			bSkippedBeginning = false;
-			bAllWater = true;
-
-			for (int r = 0; r < ROWS || (bWorkingOnPath && !bAllWater); ++r) {
-				int r2 = r % ROWS;
-				if (game.isDiscovered(new Tile(r2, c))
-						&& detailedMap[r2][c] == STR_UNKNOWN) {
-					detailedMap[r2][c] = STR_LAND;
-				}
-
-				if (game.getIlk(new Tile(r2, c)).equals(Ilk.WATER)) {
-					bWorkingOnPath = true;
-					// skip if you require wrap and haven't skipped the
-					// beginning yet
-					if (!bRequiresWrap || bSkippedBeginning) {
-						if (game.getIlk(new Tile(r2, c)).equals(Ilk.WATER)) {
-							detailedMap[r2][c] = STR_WATER;
-						}
-
-						iSegmentLen = (iSegmentStart == Integer.MAX_VALUE) ? 1
-								: ++iSegmentLen;
-						iSegmentStart = (iSegmentStart == Integer.MAX_VALUE) ? r2
-								: iSegmentStart;
-					}
-				} else {
-					bWorkingOnPath = false;
-					bSkippedBeginning = true;
-					bAllWater = false;
-
-					if (iSegmentLen > 0) {
-						Tile tileStart = new Tile(iSegmentStart, c);
-
-						iFirstWest = Integer.MAX_VALUE - 100;
-						iLastWest = -1;
-
-						// don't just look for the first water tile parallel to
-						// the water segment
-						// look one to each side, because those water tiles
-						// would make the rest of
-						// the inner tiles unneeded (see tutorial map for
-						// example)
-						for (int i = -1; i < iSegmentLen + 1; ++i) {
-							Tile t = game.getTile(tileStart, i, -1);
-							bThisTileWater = game.getIlk(t).equals(Ilk.WATER);
-							if (bThisTileWater) {
-								iFirstWest = Math.min(iFirstWest, i);
-								iLastWest = Math.max(iLastWest, i);
-							}
-						}
-
-						if (iLastWest - iFirstWest > 1) {
-							for (int i = iFirstWest + 1; i < iLastWest; ++i) {
-								Tile t = game.getTile(tileStart, i, -1);
-								if (detailedMap[t.getRow()][t.getCol()] != STR_WATER) {
-									detailedMap[t.getRow()][t.getCol()] = STR_WEST;
-									// game.setIlk(t, Ilk.DEADEND);
-								}
-							}
-						}
-
-						iFirstEast = Integer.MAX_VALUE - 100;
-						iLastEast = -1;
-
-						for (int i = -1; i < iSegmentLen + 1; ++i) {
-							Tile t = game.getTile(tileStart, i, 1);
-							bThisTileWater = game.getIlk(t).equals(Ilk.WATER);
-							if (bThisTileWater) {
-								iFirstEast = Math.min(iFirstEast, i);
-								iLastEast = Math.max(iLastEast, i);
-							}
-						}
-
-						if (iLastEast - iFirstEast > 1) {
-							for (int i = iFirstEast + 1; i < iLastEast; ++i) {
-								Tile t = game.getTile(tileStart, i, 1);
-								if (detailedMap[t.getRow()][t.getCol()] != STR_WATER) {
-									detailedMap[t.getRow()][t.getCol()] = STR_EAST;
-									// game.setIlk(t, Ilk.DEADEND);
-								}
-							}
-						}
-						// End east side
-					}
-
-					// Reset the segment start
-					iSegmentLen = -1;
-					iSegmentStart = Integer.MAX_VALUE;
-				}
-			}
-		}
-		// End vertical pieces
-
-//		log("----------");
-//		for (int r = 0; r < ROWS; r++) {
-//			String out = "";
-//			for (int c = 0; c < COLS; c++) {
-//				out = out + detailedMap[r][c];
-//				if (detailedMap[r][c] == STR_NORTH
-//						|| detailedMap[r][c] == STR_SOUTH
-//						|| detailedMap[r][c] == STR_EAST
-//						|| detailedMap[r][c] == STR_WEST) {
-//					game.setIlk(new Tile(r, c), Ilk.DEADEND);
-//				}
-//			}
-//			log(out);
-//		}
-//		log("----");
-	}
+    public Tile getClosestEnemy(Ant ant)
+    {
+		   return map.getClosestLocation(ant.getCurrentTile(), map.getEnemyAntsInMyAttackRange(ant));
+    }
+ 
+	// TODO: Make this more efficient later
+    // Currently, look for any ants within your view distance
+    public Ant getClosestHelp(Ant ant, Tile enemyTile)
 	{
-		// Looks for segments > 2 in length, then look to see if they trap tiles on either side
-	    int iFirstNorth, iLastNorth, iFirstSouth, iLastSouth;
-	    int iSegmentStart = Integer.MAX_VALUE;
-	    int iSegmentLen = -1;
-	    boolean bThisTileWater;
+    	Tile closestFriend = null;
+    	int highestHeat = Integer.MIN_VALUE;
+    	
+       	for (Map.Entry<Tile, Integer> mapView : this.offHelp.getOffsetMap().entrySet())
+       	{
+       		Tile tileCheck = map.getTile(ant.getCurrentTile(), mapView.getKey());
+       		
+       		if(!tileCheck.equals(ant.getCurrentTile()) && map.getAllFriendlyAntTiles().contains(tileCheck)) {
+       			if(mapView.getValue() > highestHeat) {
+       				closestFriend = tileCheck;
+       				highestHeat = mapView.getValue();
+       			}
+       		}  
+       	}
 
-	    String STR_WATER = "*";
-	    String STR_UNKNOWN = "_";
-	    String STR_LAND = " ";
-	    String STR_NORTH = "N";
-	    String STR_SOUTH = "S";
-	    String STR_EAST = "E";
-	    String STR_WEST = "W";
+       	// Also look to see if the guy can be found in the  hash
+       	if(closestFriend == null) {
+       		for(Ant a: map.getMyAntsInEnemyAttackRange(enemyTile)) {
+       			if(a != ant) {
+       				log("Found and ant outside of my help range along this enemy's perimeter");
+       				return a;
+       			}
+       		}
+       	}
 
-    	boolean bWorkingOnPath = false;
-    	boolean bRequiresWrap = false;
-    	boolean bSkippedBeginning = false;
-    	boolean bHasLand = false;
-	    for (int r = 0; r < ROWS; ++r)
-	    {
-	    	bWorkingOnPath = false; // need to special handle wrapping around the board, so keep track of whether we're working on a path
-
-	    	// require wrap if both the first and last spaces are not passable (water)
-	    	// bRequiresWrap = !game.isPassible(r, 0) && !game.isPassible(r, COLS - 1);
-	    	bRequiresWrap = !game.getIlk(new Tile(r, 0)).equals(Ilk.WATER) && !game.getIlk(new Tile(r, COLS - 1)).equals(Ilk.WATER);
-	    	bSkippedBeginning = false;
-
-	    	for (int c = 0; c < COLS || (bWorkingOnPath && bHasLand); ++c)
-	        {
-	    		int c2 = c % COLS;
-            	if(game.isDiscovered(new Tile(r, c2)) && detailedMap[r][c2] == STR_UNKNOWN) {
-	            	detailedMap[r][c2] = STR_LAND;
-            	}
-
-	    		if(game.getIlk(new Tile(r, c2)).equals(Ilk.WATER)) {
-	    			// skip if you require wrap and haven't skipped the beginning yet
-	    			if(!bRequiresWrap || bSkippedBeginning) {
-		            	if(game.getIlk(new Tile(r, c2)).equals(Ilk.WATER)) {
-		            		detailedMap[r][c2] = STR_WATER;
-		            	}
-		            	iSegmentLen = (iSegmentStart == Integer.MAX_VALUE) ? 1 : ++iSegmentLen;
-		            	iSegmentStart = (iSegmentStart == Integer.MAX_VALUE) ? c2 : iSegmentStart;
-	            	}
-	            }
-	        	else
-	        	{
-	        		bHasLand = true;
-	        		bWorkingOnPath = false;
-	    			bSkippedBeginning = true;
-	        		if(iSegmentLen > 0)
-	        		{
-	        			Tile tileStart = new Tile(r, iSegmentStart);
-
-	        			iFirstNorth = Integer.MAX_VALUE - 100;
-	        			iLastNorth = -1;
-
-	        			// don't just look for the first water tile parallel to the water segment
-	        			// look one to each side, because those water tiles would make the rest of
-	        			// the inner tiles unneeded (see tutorial map for example)
-	                	for (int i=-1; i<iSegmentLen+1; ++i)
-	                	{
-	                		Tile t = game.getTile(tileStart, -1, i);
-	        				bThisTileWater = game.getIlk(t).equals(Ilk.WATER);
-	                		if(bThisTileWater) {
-	                			iFirstNorth = Math.min(iFirstNorth, i);
-	                   			iLastNorth = Math.max(iLastNorth, i);
-	                		}
-	               		}
-
-	                	if(iLastNorth - iFirstNorth > 1) {
-	                    	for (int i=iFirstNorth+1; i < iLastNorth; ++i) {
-		                		Tile t = game.getTile(tileStart, -1, i);
-	                    		if(detailedMap[t.getRow()][t.getCol()] != STR_WATER) {
-	                    			detailedMap[t.getRow()][t.getCol()] = STR_NORTH;
-	                    			// game.setIlk(t, Ilk.DEADEND);
-	                    		}
-	                    	}
-	                	}
-
-	        			iFirstSouth = Integer.MAX_VALUE - 100;
-	        			iLastSouth = -1;
-
-	                	for (int i=-1; i<iSegmentLen+1; ++i)
-	                	{
-	                		Tile t = game.getTile(tileStart, 1, i);
-	        				bThisTileWater = game.getIlk(t).equals(Ilk.WATER);
-	                		if(bThisTileWater) {
-	                			iFirstSouth = Math.min(iFirstSouth, i);
-	                			iLastSouth = Math.max(iLastSouth, i);
-	                		}
-	               		}
-
-	                	if(iLastSouth - iFirstSouth > 1) {
-	                    	for (int i=iFirstSouth+1; i < iLastSouth; ++i) {
-		                		Tile t = game.getTile(tileStart, 1, i);
-	                    		if(detailedMap[t.getRow()][t.getCol()] != STR_WATER) {
-	                    			detailedMap[t.getRow()][t.getCol()] = STR_SOUTH;
-	                    			// game.setIlk(t, Ilk.DEADEND);
-	                    		}
-	                    	}
-	                	}
-	                	// End south side
-	            	}
-
-	        		// Reset the segment start
-	        		iSegmentLen = -1;
-	        		iSegmentStart = Integer.MAX_VALUE;
-	        	}
-	        }
-	    }
-	    // End horizontal pieces
-
-	    // Looks for segments > 2 in length, then look to see if they trap tiles on either side
-	    int iFirstWest, iLastWest, iFirstEast, iLastEast;
-	    iSegmentStart = Integer.MAX_VALUE;
-	    iSegmentLen = -1;
-
-		bWorkingOnPath = false;
-		bSkippedBeginning = true;
-		bHasLand = false;
-    	for (int c = 0; c < COLS; ++c)
-	    {
-	    	bWorkingOnPath = false; // need to special handle wrapping around the board, so keep track of whether we're working on a path
-
-	    	// require wrap if both the first and last spaces are not passable (water)
-	    	bRequiresWrap = !game.getIlk(new Tile(0, c)).equals(Ilk.WATER) && !game.getIlk(new Tile(ROWS - 1, c)).equals(Ilk.WATER);
-	    	bSkippedBeginning = false;
-
-	    	for (int r = 0; r < ROWS || (bWorkingOnPath && bHasLand); ++r)
-	        {
-	    		int r2 = r % ROWS;
-            	if(game.isDiscovered(new Tile(r2, c)) && detailedMap[r2][c] == STR_UNKNOWN) {
-	            	detailedMap[r2][c] = STR_LAND;
-            	}
-
-	    		if(game.getIlk(new Tile(r2, c)).equals(Ilk.WATER)) {
-	    			bWorkingOnPath = true;
-	    			// skip if you require wrap and haven't skipped the beginning yet
-	    			if(!bRequiresWrap || bSkippedBeginning) {
-		            	if(game.getIlk(new Tile(r2, c)).equals(Ilk.WATER)) {
-		    				detailedMap[r2][c] = STR_WATER;
-		            	}
-
-		            	iSegmentLen = (iSegmentStart == Integer.MAX_VALUE) ? 1 : ++iSegmentLen;
-		            	iSegmentStart = (iSegmentStart == Integer.MAX_VALUE) ? r2 : iSegmentStart;
-	            	}
-	            }
-	        	else
-	        	{
-	    			bWorkingOnPath = false;
-	    			bSkippedBeginning = true;
-	         		bHasLand = true;
-	         	   
-	        		if(iSegmentLen > 0)
-	        		{
-	        			Tile tileStart = new Tile(iSegmentStart, c);
-
-	        			iFirstWest = Integer.MAX_VALUE - 100;
-	        			iLastWest = -1;
-
-	        			// don't just look for the first water tile parallel to the water segment
-	        			// look one to each side, because those water tiles would make the rest of
-	        			// the inner tiles unneeded (see tutorial map for example)
-	                	for (int i=-1; i<iSegmentLen+1; ++i)
-	                	{
-	                		Tile t = game.getTile(tileStart, i, -1);
-	        				bThisTileWater = game.getIlk(t).equals(Ilk.WATER);
-	                		if(bThisTileWater) {
-	                			iFirstWest = Math.min(iFirstWest, i);
-	                   			iLastWest = Math.max(iLastWest, i);
-	                		}
-	               		}
-
-	            	    if(iLastWest - iFirstWest > 1) {
-	                    	for (int i=iFirstWest+1; i < iLastWest; ++i) {
-		                		Tile t = game.getTile(tileStart, i, -1);
-	                    		if(detailedMap[t.getRow()][t.getCol()] != STR_WATER) {
-	                    			detailedMap[t.getRow()][t.getCol()] = STR_WEST;
-	                    			// game.setIlk(t, Ilk.DEADEND);
-	                    		}
-	                    	}
-	                	}
-
-	        			iFirstEast = Integer.MAX_VALUE - 100;
-	        			iLastEast = -1;
-
-	                	for (int i=-1; i<iSegmentLen+1; ++i)
-	                	{
-	                		Tile t = game.getTile(tileStart, i, 1);
-	        				bThisTileWater = game.getIlk(t).equals(Ilk.WATER);
-	                		if(bThisTileWater) {
-	                			iFirstEast = Math.min(iFirstEast, i);
-	                			iLastEast = Math.max(iLastEast, i);
-	                		}
-	               		}
-
-	                	if(iLastEast - iFirstEast > 1) {
-	                    	for (int i=iFirstEast+1; i < iLastEast; ++i) {
-		                		Tile t = game.getTile(tileStart, i, 1);
-	                    		if(detailedMap[t.getRow()][t.getCol()] != STR_WATER) {
-	                    			detailedMap[t.getRow()][t.getCol()] = STR_EAST;
-	                    			// game.setIlk(t, Ilk.DEADEND);
-	                    		}
-	                    	}
-	                	}
-	                	// End east side
-	            	}
-
-	        		// Reset the segment start
-	        		iSegmentLen = -1;
-	        		iSegmentStart = Integer.MAX_VALUE;
-	        	}
-	        }
-	    }
-	    // End vertical pieces
-
-
-//		log("----------");
-//		for(int r = 0; r<ROWS; r++){
-//			String out = "";
-//			for(int c = 0; c<COLS; c++){
-//				out = out + detailedMap[r][c];
-//				if(detailedMap[r][c] == STR_NORTH ||
-//						detailedMap[r][c] == STR_SOUTH ||
-//						detailedMap[r][c] == STR_EAST ||
-//						detailedMap[r][c] == STR_WEST) {
-//					game.setIlk(new Tile(r,c), Ilk.DEADEND);
-//				}
-//			}
-//			log(out);
-//		}
-//		log("----");
+       	return (closestFriend == null) ? null : this.map.getLocationAntMap().get(closestFriend);
 	}
-    
-    private void log(String log){
-    	try {
 
-    	    out.write(log + "\r\n");
-    	    out.flush();
-		} catch (IOException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-    }
-
-    private void logcrash(String str){
-    	if(game.getCurrentTurn() == this.iCrashTurn)
-    		log(str);
+    public boolean moveToBorders(Set<Ant> ants, HeatMap hm)
+    {
+    	return true;
+    	
+//    	// Set<Pair<Ant, Set<Tile>>> 
+//
+//    	
+//    	// Add all borders that this ant can get to
+//    	Set<Tile> antBorders = new HashSet<Tile>();
+//    	if(hmEnemyNextAttack.isBorder(ant.getCurrentTile())) {
+//    		antBorders.add(ant.getCurrentTile());
+//    	}
+//    	antBorders.addAll(hmEnemyNextAttack.findNeighboringBorders(ant.getCurrentTile()));
+//    	
+//    	// Add all borders that the helper can get to
+//    	Set<Tile> helperBorders = new HashSet<Tile>();
+//    	if(hmEnemyNextAttack.isBorder(helper.getCurrentTile())) {
+//    		helperBorders.add(helper.getCurrentTile());
+//    	}
+//    	helperBorders.addAll(hmEnemyNextAttack.findNeighboringBorders(helper.getCurrentTile()));
+//
+//    	log("Ant can get to borders: " + antBorders);
+//    	log("Helper can get to borders: " + helperBorders);
+//
+    	
+    	
+    	
+ 	
+    	
+    	
     }
     
+	public void log(String str) {
+		game.log(str);
+	}
+
+	public void logcrash(String str) {
+		game.logcrash(str);
+	}
+	
     public static void main(String[] args) throws IOException {
         new MyBot().readSystemInput();
-    }    
+    }
 }

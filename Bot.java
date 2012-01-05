@@ -2,15 +2,23 @@
  * Provides basic game state handling.
  */
 public abstract class Bot extends AbstractSystemInputParser {
-    private Game game;
+    protected Game game;
+    protected AntMap map;
+    protected int ROWS;
+    protected int COLS;
     
     /**
      * {@inheritDoc}
      */
     @Override
-    public void setup(int loadTime, int turnTime, int rows, int cols, int turns, int viewRadius2,
-            int attackRadius2, int spawnRadius2) {
-        setGame(new Game(loadTime, turnTime, rows, cols, turns, viewRadius2, attackRadius2, spawnRadius2));
+    public void setup(int loadTime, int turnTime, int rows, int cols, int turns, int viewRadius2, int attackRadius2, int spawnRadius2) 
+    {
+    	Game g = new Game(loadTime, turnTime, rows, cols, turns, viewRadius2, attackRadius2, spawnRadius2);
+    	setGame(g);
+        ROWS = game.getRows();
+		COLS = game.getCols();
+    	
+    	setMap(new AntMap(g));
     }
     
     /**
@@ -31,21 +39,24 @@ public abstract class Bot extends AbstractSystemInputParser {
         this.game = game;
     }
     
+    public AntMap getMap() {
+        return map;
+    }
+    
+    protected void setMap(AntMap map) {
+        this.map = map;
+    }
+    
     /**
      * {@inheritDoc}
      */
     @Override
     public void beforeUpdate() {
         game.setTurnStartTime(System.currentTimeMillis());
-        game.clearMyAnts();
-        game.clearEnemyAnts();
-        game.clearMyHills();
-        game.clearEnemyHills();
-        game.clearFood();
-        game.clearDeadAnts();
         game.getOrders().clear();
-        game.clearVision();
         game.incrementTurn();
+
+        map.beforeUpdate();
     }
     
     /**
@@ -53,7 +64,7 @@ public abstract class Bot extends AbstractSystemInputParser {
      */
     @Override
     public void addWater(int row, int col) {
-        game.update(Ilk.WATER, new Tile(row, col));
+        map.processWater(row, col);
     }
     
     /**
@@ -61,7 +72,8 @@ public abstract class Bot extends AbstractSystemInputParser {
      */
     @Override
     public void addAnt(int row, int col, int owner) {
-        game.update(owner > 0 ? Ilk.ENEMY_ANT : Ilk.MY_ANT, new Tile(row, col));
+    	map.processLiveAnt(row, col, owner);
+    	// map.update(owner > 0 ? Ilk.ENEMY_ANT : Ilk.MY_ANT, new Tile(row, col));
     }
     
     /**
@@ -69,7 +81,7 @@ public abstract class Bot extends AbstractSystemInputParser {
      */
     @Override
     public void addFood(int row, int col) {
-        game.update(Ilk.FOOD, new Tile(row, col));
+    	map.processFood(row, col);
     }
     
     /**
@@ -77,7 +89,7 @@ public abstract class Bot extends AbstractSystemInputParser {
      */
     @Override
     public void removeAnt(int row, int col, int owner) {
-        game.update(Ilk.DEAD, new Tile(row, col));
+    	map.processDeadAnt(row, col, owner);
     }
     
     /**
@@ -85,7 +97,7 @@ public abstract class Bot extends AbstractSystemInputParser {
      */
     @Override
     public void addHill(int row, int col, int owner) {
-        game.updateHills(owner, new Tile(row, col));
+    	map.processHill(row, col, owner);
     }
     
     /**
@@ -93,6 +105,6 @@ public abstract class Bot extends AbstractSystemInputParser {
      */
     @Override
     public void afterUpdate() {
-        game.setVision();
+    	map.afterUpdate();
     }
 }

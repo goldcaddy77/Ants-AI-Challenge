@@ -9,20 +9,20 @@ import java.util.*;
  */
 public class PathFinder extends AStar<Tile>
 {
-    private PathStore store = null;
-    private Game game = null;
-    private Tile tileFrom = null;
-    private Tile tileTo = null;
+    // private PathStore store;
+    private AntMap map;
+    // private Tile tileFrom;
+    private Tile tileTo;
     
     public PathFinder(PathStore store, Tile from, Tile to){
-    	this.store = store;
-    	this.game = store.getGame();
-    	this.tileFrom = from;
+    	// this.store = store;
+    	this.map = store.getMap();
+    	// this.tileFrom = from;
     	this.tileTo = to;
     }
 
     protected boolean isGoal(Tile t) {
-        return t.equals(this.tileTo);
+        return t.equals(tileTo);
     }
 
     protected Double g(Tile from, Tile to)
@@ -30,7 +30,7 @@ public class PathFinder extends AStar<Tile>
     	if(from.equals(to)) {
     		return 0.0;
     	}
-    	else if(this.game.getIlk(to).isPassable() || isGoal(to)) {
+    	else if(map.getIlk(to).isPassable() || isGoal(to)) {
     		return 1.0;
     	}
     	else {
@@ -40,15 +40,15 @@ public class PathFinder extends AStar<Tile>
     
     protected Double h(Tile from, Tile to){
         /* Use the Manhattan distance heuristic.  */
-        return (double) this.game.getDistance(from, to);
+        return (double) map.getDistance(from, to);
     }
     
     protected List<Tile> generateSuccessors(Tile tile){
         List<Tile> successors = new LinkedList<Tile>();
 
         for (Aim direction : Aim.values()) {
-        	Tile t = game.getTile(tile, direction);
-            if(game.getIlk(t).isPassable() || isGoal(t))
+        	Tile t = map.getTile(tile, direction);
+            if(map.getIlk(t).isPassable() || isGoal(t))
             	successors.add(t);
         }
         
