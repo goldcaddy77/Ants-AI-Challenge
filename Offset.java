@@ -40,27 +40,7 @@ public class Offset {
 	        }
 	    }	
 
-	    // Set perimeter and horizon
-		// for (Map.Entry<Tile, Integer> tileMap : offsetMap.entrySet()) 
-		for (Tile tile: this.offsets) 
-		{
-      		boolean bPerimeter = false;
-			Tile neighbor = null;
-
-      		// If any of the items to the N, S, E or W cannot be found, then the unfound tile is horizon
-			for(Aim aim: Aim.values()) {
-				neighbor = map.getTileAllowNegatives(tile, aim);
-	      		if(!offsetMap.containsKey(neighbor)) {
-	      			horizon.add(neighbor);
-	      			bPerimeter = true;
-	      		}
-			}			
-			
-			// If any of the items were horizon tiles, then this is a perimeter tile
-			if(bPerimeter) {
-      			perimeter.add(tile);
-      		}
-       	}		
+	    setPerimeterAndHorizon(map);
 	}
 	
 	public Set<Tile> getPerimeter() {
@@ -71,16 +51,50 @@ public class Offset {
 		return this.horizon;
 	}
 	
-	// NEED TO FIX THIS NOW TO MODIFY PERIMETER, HORIZON, AND UPDATE offsets, ETC...
-	public void add(Offset off) 
+	public void add(Offset off, AntMap map) 
 	{
        	for (Map.Entry<Tile, Integer> tileMap : off.offsetMap.entrySet()) 
        	{
        		if(!this.offsetMap.containsKey(tileMap.getKey())) {
+       			map.loginfo("New item added to offset: " + tileMap.getKey());
        			this.offsetMap.put(tileMap.getKey(), tileMap.getValue());
+       			this.offsets.add(tileMap.getKey());
        		}
        	}
+       	
+       	setPerimeterAndHorizon(map);
 	}
+	
+    private void setPerimeterAndHorizon(AntMap map) 
+    {
+    	horizon.clear();
+		perimeter.clear();
+		
+    	// Set perimeter and horizon
+    	// for (Map.Entry<Tile, Integer> tileMap : offsetMap.entrySet()) 
+    	for (Tile tile: offsets) 
+    	{
+      		boolean bPerimeter = false;
+    		Tile neighbor = null;
+
+      		// If any of the items to the N, S, E or W cannot be found, then the unfound tile is horizon
+    		for(Aim aim: Aim.values()) {
+    			neighbor = map.getTileAllowNegatives(tile, aim);
+          		if(!offsets.contains(neighbor)) {
+          			horizon.add(neighbor);
+          			bPerimeter = true;
+          		}
+    		}			
+    		
+    		// If any of the items were horizon tiles, then this is a perimeter tile
+    		if(bPerimeter) {
+      			perimeter.add(tile);
+      		}
+       	}	
+    	
+    	map.loginfo("Perim size: " + perimeter.size());
+    	map.loginfo("Horizon size: " + horizon.size());
+    }
 
 	public int getRadius2(){
 		return this.radius2;

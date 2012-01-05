@@ -22,6 +22,7 @@ public class Ant implements Comparable<Ant> {
     private Path path;
     private int age;
     private Map<Integer, LinkedList<String>> orderLog = new HashMap<Integer, LinkedList<String>>();
+    private List<Tile> foodTargets = new LinkedList<Tile>();
            
     /**
      * Creates new {@link Ant} object.
@@ -38,9 +39,12 @@ public class Ant implements Comparable<Ant> {
         this.tileCurrent = tile;
     }
     
-    public int getAge()
-    {
+    public int getAge() {
     	return age;
+    }
+    
+    public int getId() {
+    	return antID;
     }
     
     public void setPath(Path p) {
@@ -105,6 +109,29 @@ public class Ant implements Comparable<Ant> {
     	this.tileCurrent = tile;
     }
     
+    public void removeFoodTarget(Tile tile){
+    	if(foodTargets.indexOf(tile) == 0){
+    		this.path = null;
+    	}
+    	foodTargets.remove(tile);
+    }
+    
+    public void addFoodTarget(Tile tile){
+    	// first food, clear my current path
+    	if(foodTargets.size() == 0){
+    		this.path = null;
+    	}
+    	foodTargets.add(tile);
+    }
+    
+    public List<Tile> getAllFoodTargets(){
+    	return foodTargets;
+    }
+    
+    public void clearFoodTargets(){
+    	foodTargets.clear();
+    }
+    
     /**
 	 * @return the myType
 	 */
@@ -129,11 +156,11 @@ public class Ant implements Comparable<Ant> {
 	/**
 	 * @param orderLog the orderLog to set
 	 */
-	public void addLog(Integer turn, String orderText) {
-		if(!orderLog.containsKey(turn)) {
-			orderLog.put(turn, new LinkedList<String>());
+	public void addLog(Game game, String orderText) {
+		if(!orderLog.containsKey(game.getCurrentTurn())) {
+			orderLog.put(game.getCurrentTurn(), new LinkedList<String>());
 		}
-		orderLog.get(turn).add(" Ant " + this + " with age " + this.age + " was told to do: " + orderText);
+		orderLog.get(game.getCurrentTurn()).add("[" + game.getTimeRemaining() + "] \"" + this.getCurrentTile().getCol() + "-" + this.getCurrentTile().getRow() + "\":\"Ant " + this + " with age " + this.age + " was told to do: " + orderText +"\"\n");
 	}
 	
 	/** 

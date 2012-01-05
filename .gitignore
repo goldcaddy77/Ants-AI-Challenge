@@ -3,3 +3,5 @@ out.txt
 bin/*
 game_logs/*
 *.class
+debug.js
+*.bak

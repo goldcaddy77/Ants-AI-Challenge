@@ -15,21 +15,23 @@ public class HeatMap
 	private int invalidValue; 
 	private boolean weighted;
 	private Set<Tile> importantTiles;
+	private Set<Tile> horizon;
 	
-	public HeatMap(AntMap map, Offset offset)
-	{
-		this(map, offset, true);
-	}
-
-	public HeatMap(AntMap map, Offset offset, boolean weighted)
+	public enum Func {
+		 ONE, ONE_ADD, DIST, DIST_SQUARE, MIN, MAX;
+	}	
+	
+	public HeatMap(AntMap map)
 	{
 		this.map = map;
 		this.rows = map.getRows();
 		this.cols = map.getCols();
-		this.offset = offset;
-		this.weighted = weighted;
-		this.invalidValue = Integer.MAX_VALUE;
+		// this.offset = offset;
+		// this.weighted = weighted;
+		// this.invalidValue = Integer.MAX_VALUE;
 		this.importantTiles = new HashSet<Tile>();
+		this.horizon = new HashSet<Tile>();
+		
 		this.heat = new int[rows][cols];
 		this.clear();
 	}
@@ -47,6 +49,7 @@ public class HeatMap
 	}
 	
 	public void clear() {
+		horizon.clear();
         for (int r = 0; r < rows; ++r) {
             for (int c = 0; c < cols; ++c) {
                 heat[r][c] = 0;
@@ -56,6 +59,10 @@ public class HeatMap
 	
 	public int[][] getMap() {
 		return this.heat;
+	}
+	
+	public Set<Tile> getHorizon() {
+		return horizon;
 	}
 	
 	public int getHeat(int r, int c) {
@@ -140,21 +147,6 @@ public class HeatMap
 		return tilesRet;
 	}
 
-//	public Set<Aim> findNeighboringBorders(Tile t){
-//		Set<Aim> moves = new HashSet<Aim>();
-//		Tile tileTemp;
-//		for(Aim aim: Aim.values()) {
-//			tileTemp = map.getTile(t, aim);
-//			if(isBorder(tileTemp)) {
-//				moves.add(aim);
-//			}
-//		}
-//
-//		map.log("findNeighboringBorders (" + t + ") returned: " + moves);
-//		
-//		return moves;
-//	}
-
 	public Set<Ant> getAntsWithHeat(Set<Ant> ants) {
 		Set<Ant> antsReturn = new HashSet<Ant>();
 
@@ -229,9 +221,32 @@ public class HeatMap
     	}
 	}
 
-	public void calculate(Set<Tile> points, Set<Tile> invalid_spaces) 
+	public int calculateFunc(HeatMap.Func func, int iDistance, int iCurrValue) {
+		switch(func) {
+			case ONE :
+				return 1;
+			case ONE_ADD :
+				return iCurrValue + 1;
+			case DIST :
+				return iCurrValue + iDistance;
+			case DIST_SQUARE :
+				return iCurrValue + (iDistance * iDistance);
+			case MIN :
+				return Integer.MIN_VALUE;
+			case MAX :
+				return Integer.MAX_VALUE;
+		    default: 
+		    	return 1;
+		}
+	}
+
+	public void calculate(Set<Tile> points, Offset offset, HeatMap.Func func) {
+		clear();
+		add(points, offset, func);
+	}
+	
+	public void add(Set<Tile> points, Offset offset, HeatMap.Func func)
 	{
-		this.clear();
 		if(points == null) {
 			return; // if there are no points, then return the blank map
 		}
@@ -240,25 +255,56 @@ public class HeatMap
 		for(Tile tile: points)
     	{
     		// Loop through the offset squares and add to the map
-		    Iterator<Entry<Tile, Integer>> it = this.offset.getOffsetMap().entrySet().iterator();
+		    Iterator<Entry<Tile, Integer>> it = offset.getOffsetMap().entrySet().iterator();
 		    while (it.hasNext()) 
 		    {
 		        Map.Entry<Tile, Integer> pairs = (Map.Entry<Tile, Integer>)it.next();
 		        Tile tileOffset = map.getTile(tile, pairs.getKey());
-		        
+
 		        // TODO: need to not add to invalid tiles
-		        this.heat[tileOffset.getRow()][tileOffset.getCol()] += (weighted) ? pairs.getValue() : 1;
+		        heat[tileOffset.getRow()][tileOffset.getCol()] = calculateFunc(func, pairs.getValue(), heat[tileOffset.getRow()][tileOffset.getCol()]);
+		    }
+		    
+		    // Loop through the horizon squares to build the horizon
+		    for(Tile tileHorizon : offset.getPerimeter()) {
+		    	horizon.add(map.getTile(tile, tileHorizon));
 		    }
     	}
-		
-		for(Tile tile: invalid_spaces) {
-			this.heat[tile.getRow()][tile.getCol()] = Integer.MAX_VALUE;
-		}
-
 	}
 	
-    public void print() {
-    	map.log(this.toString());
+    public void print() 
+    {
+    	String strMap = "", strRow = "", strCell = "";
+		for(int r = 0; r < this.rows; r++){
+			strRow = "[" + String.format("%03d", r) + "]";
+			for(int c = 0; c < this.cols; c++)
+			{
+				strCell = "";
+				if(heat[r][c] > 9999999) {
+					strCell += "MAX";
+				} 
+				else if(heat[r][c] < -9999999) {
+					strCell += "MIN";
+				}
+				else {
+					if(this.importantTiles.contains(new Tile(r, c))) {
+						strCell += "B";
+					} else if(map.getIlk(r, c) == Ilk.ENEMY_ANT) {
+						strCell += "E";
+					} else if(map.getIlk(r, c) == Ilk.MY_ANT) {
+						strCell += "A";
+					} 
+
+					if(heat[r][c] != Integer.MIN_VALUE) {
+						strCell += String.format("%03d",heat[r][c]);
+						// strCell += heat[r][c]; // Integer.toString(heat[r][c]);  
+					}
+				}
+				
+				strRow += leftPad(strCell, 4);
+    		}
+    		map.log(strRow);
+    	}
     }	
 	
     /**
@@ -266,31 +312,7 @@ public class HeatMap
      */
     @Override
     public String toString() {
-    	String strMap = "", strRow = "", strCell = "";
-		for(int r = 0; r < this.rows; r++){
-			strRow = "[" + String.format("%03d", r) + "]";
-			for(int c = 0; c < this.cols; c++)
-			{
-				strCell = "";
-				if(this.importantTiles.contains(new Tile(r, c))) {
-					strCell += "B";
-				} else if(heat[r][c] == Integer.MAX_VALUE) {
-					strCell += "-";
-				} else if(map.getIlk(r, c) == Ilk.ENEMY_ANT) {
-					strCell += "E";
-				} else if(map.getIlk(r, c) == Ilk.MY_ANT) {
-					strCell += "A";
-				} 
-
-				if(heat[r][c] != Integer.MIN_VALUE) {
-					strCell += String.format("%03d",heat[r][c]);
-					// strCell += heat[r][c]; // Integer.toString(heat[r][c]);  
-				}
-				strRow += leftPad(strCell, 4);
-    		}
-    		strMap += strRow + "\n";
-    	}
-		return strMap;
+    	return "";
     }
 
     public String leftPad(String str, int size) {

@@ -18,12 +18,6 @@ public enum Ilk {
     /** Land tile. */
     LAND,
     
-    // My Hill tile
-    MY_HILL,
-    
-    // Enemy Hill tile
-    ENEMY_HILL,
-    
     /** Dead ant tile. */
     DEAD,
     
@@ -31,22 +25,23 @@ public enum Ilk {
     MY_ANT,
     
     /** Enemy ant tile. */
-    ENEMY_ANT;
+    ENEMY_ANT,
     
-    /**
-     * Checks if this type of tile is passable, which means it is not a water tile.
-     * 
-     * @return <code>true</code> if this is not a water tile, <code>false</code> otherwise
-     */
+    // My Hill tile
+    MY_HILL,
+    
+    // Enemy Hill tile
+    ENEMY_HILL;
+    
+    public boolean isMovable() {
+        return ordinal() > WATER.ordinal();
+    }
+
     public boolean isPassable() {
         return ordinal() > DEADEND.ordinal();
     }
 
     public boolean isNavigable() {
-        return ordinal() > FOOD.ordinal();
-    }
-
-    public boolean isMovable() {
         return ordinal() > FOOD.ordinal();
     }
 

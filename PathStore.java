@@ -23,8 +23,13 @@ public class PathStore {
     	this.store = new HashMap<Integer, HashMap<Integer, Path>>();
     }
 
-    public Path getPath(Tile from, Tile to)
+    public Path getPath(Tile from, Tile to, boolean bNavToNeighbor)
     {
+    	// If you supply a bad destination location (water), return null
+    	if(map.getIlk(to).equals(Ilk.WATER)) {
+    		return null;
+    	}
+    	
     	Path path = null;
 //    	if((path = this.getTileCache(from).get(to.id())) != null) 
 //    	{
@@ -38,7 +43,7 @@ public class PathStore {
 //    		}
 //		}
 //    	else {
-        	PathFinder pf = new PathFinder(this, from, to);
+        	PathFinder pf = new PathFinder(this, from, to, bNavToNeighbor);
         	long begin = System.currentTimeMillis();
         	
         	List<Tile> tiles = pf.compute(from);
@@ -89,12 +94,12 @@ public class PathStore {
     	
     public int getDistance(Tile from, Tile to)
     {
-    	Log("getDistance: " + from + " | " + to);
+    	// Log("getDistance: " + from + " | " + to);
     	if(from.equals(to)) {
     		return 0;
     	}
     	
-    	Path p = this.getPath(from, to);
+    	Path p = this.getPath(from, to, false);
     	if(p == null) {
     		// System.out.println("Failed to get path from " + from + " to " + to);
     		return Integer.MAX_VALUE;

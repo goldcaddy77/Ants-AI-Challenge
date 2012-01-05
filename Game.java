@@ -1,4 +1,5 @@
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.HashSet;
@@ -20,6 +21,7 @@ public class Game {
     private final int attackRadius2;
     private final int spawnRadius2;
 
+
     private long turnStartTime;
     private int currentTurn;
 
@@ -29,6 +31,10 @@ public class Game {
     private FileWriter fstream;
     private BufferedWriter out;
     private int iCrashTurn;
+    
+
+    private FileWriter fstream_debugjs;
+    private BufferedWriter out_debugjs;
     
     /**
      * Creates new {@link Game} object.
@@ -54,15 +60,29 @@ public class Game {
 
         // Set up logging
         try {
+        	
+        	File file=new File("out.txt");
+        	if(file.exists()) {
+        		file.renameTo(new File("out.txt.bak"));
+        	}
+        	
 			fstream = new FileWriter("out.txt");
 		    out = new BufferedWriter(fstream);
+		    
+
+		    fstream_debugjs = new FileWriter("debug.js");
+		    out_debugjs = new BufferedWriter(fstream_debugjs);
+		    
+		    this.debugjs("var debug_orders = [];");
+		    
+		    
+		    
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
     }
     
-
 
     /**
      * Returns timeout for initializing and setting up the bot on turn 0.
@@ -127,29 +147,14 @@ public class Game {
         return attackRadius2;
     }
 
-    /**
-     * Returns squared spawn radius of each ant.
-     * 
-     * @return squared spawn radius of each ant
-     */
     public int getSpawnRadius2() {
         return spawnRadius2;
     }
 
-    /**
-     * Sets turn start time.
-     * 
-     * @param turnStartTime turn start time
-     */
     public void setTurnStartTime(long turnStartTime) {
         this.turnStartTime = turnStartTime;
     }
 
-    /**
-     * Returns how much time the bot has still has to take its turn before timing out.
-     * 
-     * @return how much time the bot has still has to take its turn before timing out
-     */
     public int getTimeRemaining() {
         return turnTime - (int)(System.currentTimeMillis() - turnStartTime);
     }
@@ -168,15 +173,30 @@ public class Game {
     }	
 		
     public void log(String log){
+		if(MyBot.DEBUG){
+			try {
+	
+				out.write("[" + getTimeRemaining() + "] " + log + "\r\n");
+				out.flush();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+    }
+    
+    public void debugjs(String js){
+		if(MyBot.DEBUG){
     	try {
 
-    	    out.write(log + "\r\n");
-    	    out.flush();
+    	    out_debugjs.write(js + "\r\n");
+    	    out_debugjs.flush();
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
 		}
     }
+	}
 
     public int getCrashTurn() {
     	return iCrashTurn;

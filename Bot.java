@@ -52,10 +52,17 @@ public abstract class Bot extends AbstractSystemInputParser {
      */
     @Override
     public void beforeUpdate() {
-        game.setTurnStartTime(System.currentTimeMillis());
-        game.getOrders().clear();
-        game.incrementTurn();
+    	map.log("Bot.beforeUpdate");
+    	map.log("Setting start time");
+    	game.setTurnStartTime(System.currentTimeMillis());
 
+    	map.log("Clearing orders");
+    	game.getOrders().clear();
+
+    	map.log("Incrementing turn");
+    	game.incrementTurn();
+
+    	map.log("map.beforeUpdate (called from Bot)");
         map.beforeUpdate();
     }
     

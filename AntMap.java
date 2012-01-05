@@ -3,24 +3,35 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import java.text.*;
 
 public class AntMap {
 
 	private int ROWS;
 	private int COLS;
+	private int iHive;
 	
 	private Game game;
 
 	// Different map views of the squares.  In theory, these should all be parameters of a Tile or Square
     private boolean visible[][];
     private boolean discovered[][];
+    private boolean horizon[][];
+    
+    private int tileFirstSeen[][];
+    private int tileLastSeen[][];
+    private int tileTimesSeen[][];
+    
+    private Set<Tile> setHorizon = new HashSet<Tile>();
+    
     private final Ilk map[][];
     private String detailedMap[][];
-	
+    
     private Map<Tile, Ant> myAntLocations = new HashMap<Tile,Ant>();
 
     private Set<Tile> inputFriendlyAntTiles = new HashSet<Tile>();
@@ -33,6 +44,8 @@ public class AntMap {
 	
     private Set<Tile> inputFoodTiles = new HashSet<Tile>();
     private Set<Tile> newFoodTiles = new HashSet<Tile>();
+    private Set<Tile> unclaimedFoodTiles = new HashSet<Tile>();
+    private Map<Tile,Ant> foodClaimedByAnt = new HashMap<Tile,Ant>();
     private Set<Tile> allFoodTiles = new HashSet<Tile>();
 
     private Set<Tile> inputFriendlyHillTiles = new HashSet<Tile>();
@@ -44,10 +57,19 @@ public class AntMap {
 
     private Set<Tile> allUnnavigableTiles = new HashSet<Tile>();
     private Set<Tile> allDeadEndTiles = new HashSet<Tile>();
+    
+    // Info for BR
+    private Set<Tile> enemyAttackHorizon = new HashSet<Tile>();
+    private Set<Tile> friendlyAttackHorizon = new HashSet<Tile>();
+    private Set<Tile> enemyAttackPerimeter = new HashSet<Tile>();
+    private Set<Tile> friendlyAttackPerimeter = new HashSet<Tile>();
+    private Set<Tile> enemyHillsAndNeighborSpots = new HashSet<Tile>();
+    private Set<Tile> friendlyHillsAndNeighborSpots = new HashSet<Tile>();
 
     // No way to tell which enemies are new for now, so we need to take all of their locations each turn no matter what
     private Set<Tile> allEnemyAntTiles = new HashSet<Tile>();
-    
+
+    private Offset offNeighborsWithDiags;
     private Offset offVision;
     private Offset offAttack;
     private Offset offNextAttack;
@@ -60,6 +82,14 @@ public class AntMap {
     private HeatMap hmNextMyAttackVsEnemyDelta;
     private Map<Ant, Set<Tile>> mapMyAntToCloseByEnemies = new HashMap<Ant, Set<Tile>>();
     private Map<Tile,Set<Ant>> mapEnemyToMyCloseByAnts = new HashMap<Tile,Set<Ant>>();
+    private Map<Tile, Set<Tile>> mapMyAntTilesToCloseByEnemies = new HashMap<Tile, Set<Tile>>();
+    private Map<Tile,Set<Tile>> mapEnemyToMyCloseByAntTiles = new HashMap<Tile,Set<Tile>>();
+    
+    // Set up data structure for obstacles on the board
+
+    private Set<Cluster> allObstacles = new HashSet<Cluster>();
+    private Set<Cluster> modifiedObstacles = new HashSet<Cluster>(); // obstacles that were modified this turn because of new tiles
+    private Map<Tile, Cluster> mapObstacles = new HashMap<Tile, Cluster>();
 
     // Unused items
     // private Map<Tile, Tile> enemyMoves = new HashMap<Tile,Tile>();
@@ -68,9 +98,9 @@ public class AntMap {
     
 	public AntMap(Game g) 
 	{
-		this.game = g;
-		this.ROWS = g.getRows();
-		this.COLS = g.getCols();
+		game = g;
+		ROWS = g.getRows();
+		COLS = g.getCols();
 		
         map = new Ilk[ROWS][COLS];
         for (Ilk[] row : map) {
@@ -88,39 +118,66 @@ public class AntMap {
         for (boolean[] row : visible) {
             Arrays.fill(row, false);
         }
-        
+
+        horizon = new boolean[ROWS][COLS];
+        for (boolean[] row : horizon) {
+            Arrays.fill(row, false);
+        }
+
+        // Set up offset map for all neighboring tiles including diagonals
+        // Todo: we can subtract item 0,0 from this list
+        offNeighborsWithDiags = new Offset(2, this);
+                
         // Set up heatmaps
-        this.offVision = new Offset(game.getViewRadius2(), this);
-        this.hmMyVision = new HeatMap(this, offVision);
-        this.hmEnemyVision = new HeatMap(this, offVision);
+        offVision = new Offset(game.getViewRadius2(), this);
+        hmMyVision = new HeatMap(this);
+        hmEnemyVision = new HeatMap(this);
         
-        this.offAttack = new Offset(game.getAttackRadius2(), this);
-        this.hmMyAttack = new HeatMap(this, offAttack, false);
-        this.hmEnemyAttack = new HeatMap(this, offAttack, false);
+        offAttack = new Offset(game.getAttackRadius2(), this);
+//        hmMyAttack = new HeatMap(this);
+//        hmEnemyAttack = new HeatMap(this);
         
         // Find all tiles enemy could be at next turn
         // not using this right now, we'll heatmap the enemy's expected moves instead
-        this.offNextAttack = new Offset(game.getAttackRadius2(), this);
-        this.offNextAttack.add(new Offset(game.getAttackRadius2(), this, new Tile(0, -1))); // add tiles if moved north
-    	this.offNextAttack.add(new Offset(game.getAttackRadius2(), this, new Tile(0, 1)));  // add tiles if moved south
-    	this.offNextAttack.add(new Offset(game.getAttackRadius2(), this, new Tile(1, 0)));  // add tiles if moved east
-    	this.offNextAttack.add(new Offset(game.getAttackRadius2(), this, new Tile(-1, 0))); // add tiles if moved west
+        offNextAttack = new Offset(game.getAttackRadius2(), this);
+        offNextAttack.add(new Offset(game.getAttackRadius2(), this, new Tile(0, -1)), this); // add tiles if moved north
+    	offNextAttack.add(new Offset(game.getAttackRadius2(), this, new Tile(0, 1)), this);  // add tiles if moved south
+    	offNextAttack.add(new Offset(game.getAttackRadius2(), this, new Tile(1, 0)), this);  // add tiles if moved east
+    	offNextAttack.add(new Offset(game.getAttackRadius2(), this, new Tile(-1, 0)), this); // add tiles if moved west
 
     	// Find heat of all enemy / friendly attack squares
-    	this.hmEnemyNextAttack = new HeatMap(this, offNextAttack, false);
-    	this.hmMyNextAttack = new HeatMap(this, offNextAttack, false);
-        this.hmNextMyAttackVsEnemyDelta = new HeatMap(this, offNextAttack, false);
+//    	hmEnemyNextAttack = new HeatMap(this);
+//    	hmMyNextAttack = new HeatMap(this);
+//      hmNextMyAttackVsEnemyDelta = new HeatMap(this);
 
+        mapMyAntToCloseByEnemies = new HashMap<Ant, Set<Tile>>();
+        mapEnemyToMyCloseByAnts = new HashMap<Tile,Set<Ant>>();
+        mapMyAntTilesToCloseByEnemies = new HashMap<Tile, Set<Tile>>();
+        mapEnemyToMyCloseByAntTiles = new HashMap<Tile, Set<Tile>>();
+        
         detailedMap = new String[ROWS][COLS];
         for (int r = 0; r < ROWS; ++r) {
             for (int c = 0; c < COLS; ++c) {
             	detailedMap[r][c] = "_";
             }
         }
+        
+        tileFirstSeen = new int[ROWS][COLS];
+        tileLastSeen = new int[ROWS][COLS];
+        tileTimesSeen = new int[ROWS][COLS];
+        for (int r = 0; r < ROWS; ++r) {
+            for (int c = 0; c < COLS; ++c) {
+            	tileFirstSeen[r][c] = Integer.MIN_VALUE;
+            	tileLastSeen[r][c] = Integer.MIN_VALUE;
+            	tileTimesSeen[r][c] = 0;
+            }
+        }
 	}
 	
 	public void beforeUpdate()
 	{
+		loginfo("AntMap.beforeUpdate");
+
 		clearVision();
 		
 		// Get the input Sets ready
@@ -136,6 +193,14 @@ public class AntMap {
         newEnemyHillTiles.clear();
         newWaterTiles.clear();
 
+        // Clear out enemy proximity info
+        mapMyAntToCloseByEnemies.clear();
+        mapEnemyToMyCloseByAnts.clear();
+        mapMyAntTilesToCloseByEnemies.clear();
+        mapEnemyToMyCloseByAntTiles.clear();
+        
+        modifiedObstacles.clear();
+        
         for (int r = 0; r < ROWS; ++r) {
             for (int c = 0; c < COLS; ++c) {
             	if(map[r][c].isClearable()) {
@@ -145,37 +210,39 @@ public class AntMap {
         }
 	}
 	
-	
-	
-
 	public void afterUpdate() 
 	{
-    	log("[" + game.getTimeRemaining() + "] Calculate Dead Ends");
+    	// Reset visible tiles
+		setVision();
+		
+		loginfo("Calculate Dead Ends");
     	calculateDeadEnds();
-
-    	log("[" + game.getTimeRemaining() + "] Recalc Food HeatMap");
-    	this.hmMyVision.calculate(allFriendlyAntTiles, allWaterTiles);
-    	this.hmEnemyVision.calculate(allEnemyAntTiles, allWaterTiles);
-
-    	log("[" + game.getTimeRemaining() + "] Recalc My Attack HeatMap");
-    	this.hmMyAttack.calculate(allFriendlyAntTiles, new HashSet<Tile>());
-
-    	log("[" + game.getTimeRemaining() + "] Recalc My Next Attack HeatMap");
-    	this.hmMyNextAttack.calculate(allFriendlyAntTiles, allWaterTiles);
-
-    	log("[" + game.getTimeRemaining() + "] Recalc Enemy Attack HeatMap");
-    	this.hmEnemyAttack.calculate(allEnemyAntTiles, allWaterTiles);
-        
-    	log("[" + game.getTimeRemaining() + "] Recalc Next Enemy Attack HeatMap");
-    	this.hmEnemyNextAttack.calculate(allEnemyAntTiles, allWaterTiles);
-    	// this.hmEnemyNextAttack.print();
-        
-    	log("[" + game.getTimeRemaining() + "] Recalc Me vs Enemy Next Attack");
-    	this.hmNextMyAttackVsEnemyDelta.copyMapFrom(hmMyNextAttack);
-    	this.hmNextMyAttackVsEnemyDelta.subtract(hmEnemyNextAttack);
-    	// this.hmNextMyAttackVsEnemyDelta.print();
-
-
+    	
+//    	loginfo("Recalc Food HeatMap");
+//    	hmMyVision.calculate(allFriendlyAntTiles, offVision, HeatMap.Func.DIST);
+//    	hmEnemyVision.calculate(allEnemyAntTiles, offVision, HeatMap.Func.DIST);
+//
+//    	loginfo("Recalc My Attack HeatMap");
+//    	hmMyAttack.calculate(allFriendlyAntTiles, offAttack, HeatMap.Func.ONE_ADD);
+//
+//    	loginfo("Recalc My Next Attack HeatMap");
+//    	hmMyNextAttack.calculate(allFriendlyAntTiles, offNextAttack, HeatMap.Func.ONE_ADD);
+//
+//    	loginfo("Recalc Enemy Attack HeatMap");
+//    	hmEnemyAttack.calculate(allEnemyAntTiles, offAttack, HeatMap.Func.ONE_ADD);
+//        
+//    	loginfo("Recalc Next Enemy Attack HeatMap");
+//    	hmEnemyNextAttack.calculate(allEnemyAntTiles, offNextAttack, HeatMap.Func.ONE_ADD);
+//    	// hmEnemyNextAttack.print();
+//    	
+//    	log("Recalc Me vs Enemy Next Attack");
+//    	// hmNextMyAttackVsEnemyDelta.copyMapFrom(hmMyNextAttack);
+//    	// hmNextMyAttackVsEnemyDelta.print();
+//
+//    	log("Subtract");
+//    	// hmNextMyAttackVsEnemyDelta.subtract(hmEnemyNextAttack);
+//    	// hmNextMyAttackVsEnemyDelta.print();
+    	
     	// remove my sacked hills - need to use iterator when removing
     	for (Iterator<Tile> hillIter = allFriendlyHillTiles.iterator(); hillIter.hasNext(); ) {
 	        Tile hill = hillIter.next();
@@ -210,21 +277,44 @@ public class AntMap {
             if (!allEnemyHillTiles.contains(tileEnemyHill)) {
             	newEnemyHillTiles.add(tileEnemyHill);
             	allEnemyHillTiles.add(tileEnemyHill);
-                log("[Map] New enemy hill added: " + tileEnemyHill);
+            	loginfo("[Map] New enemy hill added: " + tileEnemyHill);
             }
         }
 
     	// Add new food to the new food set (and 'all' set)
         for (Tile tileFood : inputFoodTiles) {
             if (!allFoodTiles.contains(tileFood)) {
+            	unclaimedFoodTiles.add(tileFood);
             	newFoodTiles.add(tileFood);
             	allFoodTiles.add(tileFood);
-                log("[Map] New food added: " + tileFood);
+            	loginfo("Adding new food tile at " + tileFood);
             }
         }
         
-        mapMyAntToCloseByEnemies = new HashMap<Ant, Set<Tile>>();
-        mapEnemyToMyCloseByAnts = new HashMap<Tile,Set<Ant>>();
+        // Remove any food that's now gone
+        for (Iterator<Tile> tileIterator = allFoodTiles.iterator(); tileIterator.hasNext();){
+        	Tile nextTile = tileIterator.next();
+        	if(this.isVisible(nextTile) && !inputFoodTiles.contains(nextTile)){
+        		loginfo("Tile no longer has food: " + nextTile);
+        		Ant ant = foodClaimedByAnt.get(nextTile);
+    			
+        		// Increment our hive number if our friendly ant is on the tile next to the food
+        		if(tileHasFriendlyAntNeighbor(nextTile)) {
+        			loginfo("Adding to hive, gobbled food up at " + nextTile);
+        			iHive++; 
+        		}
+        		
+        		if(ant != null){
+        			ant.removeFoodTarget(nextTile);
+        			foodClaimedByAnt.remove(nextTile);
+        		}
+        		unclaimedFoodTiles.remove(nextTile);
+        		tileIterator.remove();
+        	}
+        	
+        }
+
+    	loginfo("Figure out which ants are close to each other");
 
     	for(Tile tileEnemyAnt: allEnemyAntTiles)
     	{
@@ -235,22 +325,104 @@ public class AntMap {
     			
     			if(distWithMoves <= game.getAttackRadius2()) 
     			{
-    				log("Ant " + ant.getCurrentTile() + " is close to enemy at location " + tileEnemyAnt + ".  Adding mapping.");
-    							
     				if(!mapMyAntToCloseByEnemies.containsKey(ant)){
     					mapMyAntToCloseByEnemies.put(ant,new HashSet<Tile>());
+    					mapMyAntTilesToCloseByEnemies.put(ant.getCurrentTile(),new HashSet<Tile>());
     				}
     				mapMyAntToCloseByEnemies.get(ant).add(tileEnemyAnt);
+					mapMyAntTilesToCloseByEnemies.get(ant.getCurrentTile()).add(tileEnemyAnt);
     	
     				if(!mapEnemyToMyCloseByAnts.containsKey(tileEnemyAnt)){
     					mapEnemyToMyCloseByAnts.put(tileEnemyAnt, new HashSet<Ant>());
+    					mapEnemyToMyCloseByAntTiles.put(tileEnemyAnt, new HashSet<Tile>());
     				}
     				mapEnemyToMyCloseByAnts.get(tileEnemyAnt).add(ant);
+    				mapEnemyToMyCloseByAntTiles.get(tileEnemyAnt).add(ant.getCurrentTile());
     			}
     		}
     	}
     	
-    	setVision();    	
+    	recalculateObstacleCosts();
+
+    	// Recreate the horizon tile set
+    	// Only for tiles that are not water or deadends
+    	setHorizon.clear();
+        for (int row = 0; row < ROWS; ++row) {
+            for (int col = 0; col < COLS; ++col) {
+                if(horizon[row][col]) {
+                	if(getIlk(row, col).isPassable()) {
+                		setHorizon.add(new Tile(row, col));
+                	}
+                }
+            }
+        }
+
+        DecimalFormat df = new DecimalFormat("#.##");
+        
+        // Increment the # times seen code
+        for (int row = 0; row < ROWS; ++row) {
+            for (int col = 0; col < COLS; ++col) {
+                if(visible[row][col]) {
+	                if(tileFirstSeen[row][col] == Integer.MIN_VALUE) {
+	                	tileFirstSeen[row][col] = game.getCurrentTurn();
+	                }
+	               	tileLastSeen[row][col] = game.getCurrentTurn();
+	               	tileTimesSeen[row][col]++;
+                }
+                
+                if(tileFirstSeen[row][col] > 0) {
+	               	double temp = (double)tileTimesSeen[row][col] / (1 + (double)tileLastSeen[row][col] - (double)tileFirstSeen[row][col]); 
+                	loginfo("[" + row + "," + col + "] " + tileFirstSeen[row][col] + " - " + tileLastSeen[row][col] + " (" + df.format(temp) + ")");
+                }
+            }
+        }
+        
+    	enemyAttackPerimeter.clear();
+        enemyAttackHorizon.clear();
+    	for(Tile tileEnemyAnt: allEnemyAntTiles)
+    	{
+    		for(Tile t : offAttack.getPerimeter()) {
+    			enemyAttackPerimeter.add(this.getTile(tileEnemyAnt, t));
+    		}
+    		for(Tile t : offAttack.getHorizon()) {
+    			enemyAttackHorizon.add(this.getTile(tileEnemyAnt, t));
+    		}
+    	}
+
+    	friendlyAttackPerimeter.clear();
+    	friendlyAttackHorizon.clear();
+    	for(Tile tileFriendlyAnt: allFriendlyAntTiles)
+    	{
+    		for(Tile t : offAttack.getPerimeter()) {
+    			friendlyAttackPerimeter.add(this.getTile(tileFriendlyAnt, t));
+    		}
+    		for(Tile t : offAttack.getHorizon()) {
+    			friendlyAttackHorizon.add(this.getTile(tileFriendlyAnt, t));
+    		}
+    	}
+
+//    	enemyHillsAndNeighborSpots.clear();
+//    	for(Tile tileFriendlyAnt: allFriendlyAntTiles)
+//    	{
+//    		for(Tile t : offNextAttack.getHorizon()) {
+//    			friendlyAttackHorizon.add(this.getTile(tileFriendlyAnt, t));
+//    		}
+//    	}
+//
+//    	friendlyHillsAndNeighborSpots.clear();
+//    	for(Tile tileFriendlyAnt: allFriendlyAntTiles)
+//    	{
+//    		for(Tile t : offNextAttack.getHorizon()) {
+//    			friendlyAttackHorizon.add(this.getTile(tileFriendlyAnt, t));
+//    		}
+//    	}
+    	
+        // Set the hive to 0 on turn 1
+    	if(game.getCurrentTurn() == 1) {
+    		iHive = 0;
+    	}
+    	
+    	loginfo("Hive count " + iHive);
 	}
 	
     /////////////////////////////////////////////////////////////////////////////////////////
@@ -265,7 +437,14 @@ public class AntMap {
     }
 
     public Set<Tile> getAllFoodTiles() {
-        return inputFoodTiles;
+        return allFoodTiles;
+    }
+    public Set<Tile> getUnclaimedFoodTiles() {
+        return unclaimedFoodTiles;
+    }
+    
+    public Map<Tile, Ant> getFoodClaimedByAnt() {
+        return foodClaimedByAnt;
     }
 
     // The following items are only sent once, so maintain our own Sets
@@ -287,54 +466,68 @@ public class AntMap {
     }
 
     public Map<Tile, Ant> getLocationAntMap() {
-        
-    	log("getLocationAntMap: myAntLocations is " + myAntLocations);
-
     	return myAntLocations;
     }
 
     public Set<Ant> getNewFriendlyAnts() {
         return newFriendlyAnts;
     }
+
+    public Set<Tile> getAllHorizonTiles() {
+    	return setHorizon;
+    }
     
+    public boolean[][] getVisibleMap() {
+        return visible;
+    }
+  
+    public boolean[][] getDiscoveredMap() {
+        return discovered;
+    }
+  
+    public boolean[][] getHorizonMap() {
+        return horizon;
+    }
     
-    /**
-     * Clears visible information
-     */
     public void clearVision() {
         for (int row = 0; row < ROWS; ++row) {
             for (int col = 0; col < COLS; ++col) {
                 visible[row][col] = false;
+            	horizon[row][col] = false;
             }
         }
     }
         
-
-    /**
-     * Calculates visible information
-     * also keeps an view of which tiles have been discovered during the game
-     */
     public void setVision() {
-        for (Tile antLoc : allFriendlyAntTiles) {
+        for (Tile antLoc : inputFriendlyAntTiles) {
             for (Tile locOffset : offVision.getOffsets()) {
                 Tile newLoc = getTile(antLoc, locOffset);
                 visible[newLoc.getRow()][newLoc.getCol()] = true;
                 discovered[newLoc.getRow()][newLoc.getCol()] = true;
             }
         }
+        
+        for (Tile antLoc : inputFriendlyAntTiles) {
+	        for (Tile locOffset : offVision.getHorizon()) {
+	            Tile newLoc = getTile(antLoc, locOffset);
+	        	if(!visible[newLoc.getRow()][newLoc.getCol()]) {
+	                horizon[newLoc.getRow()][newLoc.getCol()] = true;
+	        	}
+	        }
+        }
     }
     
-
     protected void processFood(int row, int col) {
     	setIlk(row, col, Ilk.FOOD);
 		inputFoodTiles.add(new Tile(row, col));
     }
     
-    
     protected void processWater(int row, int col) {
+    	Tile tileWater = new Tile(row, col);
     	setIlk(row, col, Ilk.WATER);
-		newWaterTiles.add(new Tile(row, col));
-		allUnnavigableTiles.add(new Tile(row, col));
+		newWaterTiles.add(tileWater);
+		allUnnavigableTiles.add(tileWater);
+		addWaterToObstacle(tileWater);
     }
 
     protected void processLiveAnt(int row, int col, int owner) 
@@ -351,13 +544,11 @@ public class AntMap {
 		        Ant ant = new Ant(row,col);
 		    	myAntLocations.put(new Tile(row,col), ant);
 		    	
-		    	log("processLiveAnt: myAntLocations is " + myAntLocations);
-
 		    	allFriendlyAntTiles.add(tile);
 		    	allFriendlyAnts.add(ant);
 		    	newFriendlyAnts.add(ant);
-		        game.log("processLiveAnt: added ant " + ant);
-			
+		    	
+    			iHive--; // Decrement our hive number
 		    }
 		}
 		else {
@@ -368,7 +559,6 @@ public class AntMap {
 	    	// enemies.add(new Integer(owner));
 		}
     }
-    
 
     protected void processHill(int row, int col, int owner) 
     {
@@ -385,23 +575,30 @@ public class AntMap {
 
     // Not really processing dead ants right now, are we?
     protected void processDeadAnt(int row, int col, int owner) {
-    	game.log("Dead ant processed by 'processDeadAnt': (" + row + ", " + col + ") - owner " + owner);
-    	
     	// TODO: this could tell us who our dead ants are so that we don't need to do the comparison
         if(owner == 0 && myAntLocations.containsKey(new Tile(row,col))) {
         	
         	Ant removedAnt = myAntLocations.remove(new Tile(row,col));
         	allFriendlyAntTiles.remove(removedAnt.getCurrentTile());
         	allFriendlyAnts.remove(removedAnt);
+        	foodClaimedByAnt.remove(removedAnt);
         	
-        	log("My ant {" + removedAnt + "} died at " + row + " : " + col);
+        	loginfo("My ant {" + removedAnt + "} died at " + row + " : " + col);
         }
     }
 
     public void moveAnt(Ant ant, Tile tile) 
     {
-    	log("moveAnt: " + ant + " | " + tile);
+    	if(!myAntLocations.containsValue(ant)) {
+    		logerror("Tried to move an ant that doesn't exist!: " + ant + " to tile " + tile);
+    		return;
+    	}
+    	else if(myAntLocations.containsKey(tile)) {
+    		logerror("Tried to move an ant to a tile already containing another ant!: " + ant + " to tile " + tile);
+    		return;
+    	}
     	
+    	// log("moveAnt: " + ant + " | " + tile);
     	myAntLocations.remove(ant.getCurrentTile());
     	allFriendlyAntTiles.remove(ant.getCurrentTile());
 
@@ -411,10 +608,172 @@ public class AntMap {
     	ant.move(tile);
     }
     
+    public int getNumberTurnsSinceLastSeen(Tile tile) {
+    	int iLastSeen = this.tileLastSeen[tile.getRow()][tile.getCol()];
+    	return (iLastSeen == Integer.MIN_VALUE) ? Integer.MIN_VALUE : game.getCurrentTurn() - iLastSeen;
+    }
+
+    public int getNumberTimesSeen(Tile tile) {
+    	return tileTimesSeen[tile.getRow()][tile.getCol()];
+    }
+
     public int getDistance(Tile t1, Tile t2) {
-        int rowDelta = getRowDelta(t1, t2);
+    	if(t1 == null) {
+    		logerror("getDistance: t1 is null");
+        	if(t2 != null) {
+        		logerror("...but t2 is: " + t2);
+        	}
+        	return Integer.MAX_VALUE;
+    	}
+    	if(t2 == null) {
+    		logerror("getDistance: t2 is null");
+        	if(t1 != null) {
+        		logerror("...but t1 is: " + t2);
+        	}
+        	return Integer.MAX_VALUE;
+    	}
+    	
+    	int rowDelta = getRowDelta(t1, t2);
+        int colDelta = getColDelta(t1, t2);
+        return rowDelta + colDelta;
+    }
+
+    public int getDistanceSquared(Tile t1, Tile t2) {
+    	if(t1 == null) {
+    		logerror("getDistance: t1 is null");
+        	if(t2 != null) {
+        		logerror("...but t2 is: " + t2);
+        	}
+        	return Integer.MAX_VALUE;
+    	}
+    	if(t2 == null) {
+    		logerror("getDistance: t2 is null");
+        	if(t1 != null) {
+        		logerror("...but t1 is: " + t2);
+        	}
+        	return Integer.MAX_VALUE;
+    	}
+    	
+    	int rowDelta = getRowDelta(t1, t2);
         int colDelta = getColDelta(t1, t2);
         return rowDelta * rowDelta + colDelta * colDelta;
+    }
+    
+    public int getDistanceThroughObstacles(Tile t1, Tile t2) 
+    {
+    	loginfo("getDistanceThroughObstacles: " + t1 + " to " + t2);
+    	
+        if(t1.equals(t2)) {
+    		logerror("Why are we trying to go to the same spot? " + t1 + " to " + t2 + ".");
+        	return 0;
+        }
+
+        List<Aim> directions = getDirections(t1, t2);
+
+    	loginfo("directions: " + directions);
+
+        int iDistRet = Integer.MAX_VALUE;
+        
+        // Try path dir1 all the way, then dir2 all the way
+        if(directions.size() == 2) {
+        	int iCost1 = getDistanceThroughObstacles(t1, t2, directions);
+        	loginfo("iCost1: " + iCost1);
+
+        	List<Aim> directionsRev = new LinkedList<Aim>();
+        	directionsRev.add(directions.get(1));
+        	directionsRev.add(directions.get(0));
+
+        	loginfo("directionsRev: " + directionsRev);
+        	
+        	int iCost2 = getDistanceThroughObstacles(t1, t2, directionsRev);
+        	loginfo("iCost2: " + iCost2);
+
+        	iDistRet = Math.min(iCost1, iCost2);
+        }
+        else if (directions.size() == 1) {
+        	iDistRet = getDistanceThroughObstacles(t1, t2, directions);
+        }
+    	loginfo("iDistRet: " + iDistRet);
+        return iDistRet;
+    }
+
+    public int getDistanceThroughObstacles(Tile t1, Tile t2, List<Aim> directions) 
+    {
+    	int iTotal = 0;
+    	Tile tileCurrent = t1;
+    	Pair<Integer, Tile> pairDistTile;
+    	for(Aim aim : directions)
+    	{
+        	if(aim.equals(Aim.NORTH) || aim.equals(Aim.SOUTH)) {
+        		pairDistTile = getDistanceThroughObstaclesNS(tileCurrent, t2, aim);
+        	}
+        	else { // East or West first
+        		pairDistTile = getDistanceThroughObstaclesEW(tileCurrent, t2, aim);
+        	}
+        	iTotal += pairDistTile.first;
+        	tileCurrent = pairDistTile.second;
+    	}
+
+    	if(!tileCurrent.equals(t2)) {
+    		logerror("Looks like we had trouble getting from " + t1 + " to " + t2 + ". Got to " + tileCurrent + "instead");
+    		return 33333;
+    	}
+    	
+    	return iTotal;
+    }
+    
+    
+    public Pair<Integer, Tile> getDistanceThroughObstaclesNS(Tile t1, Tile t2, Aim aim) 
+    {
+		Tile tileTemp = t1;
+		int iCount = 0;
+		int iMaxPenalty = 0;
+    	while(t2.getRow() != tileTemp.getRow()) {
+    		tileTemp = getTile(tileTemp, aim);
+    		iCount++;
+    		if(iMaxPenalty == 0) {
+    			iMaxPenalty = getObstaclePenalty(tileTemp, aim);
+    		}
+    	}
+
+    	return new Pair<Integer, Tile>(iCount + iMaxPenalty, tileTemp);
+    }
+
+    public Pair<Integer, Tile> getDistanceThroughObstaclesEW(Tile t1, Tile t2, Aim aim) 
+    {
+    	Tile tileTemp = t1;
+    	int iCount = 0;
+    	int iMaxPenalty = 0;
+    	while(t2.getCol() != tileTemp.getCol()) {
+    		tileTemp = getTile(tileTemp, aim);
+    		iCount++;
+    		if(iMaxPenalty == 0) {
+    			iMaxPenalty = getObstaclePenalty(tileTemp, aim);
+    		}
+    	}
+
+    	return new Pair<Integer, Tile>(iCount + iMaxPenalty, tileTemp);
+    }
+    
+    public int getObstaclePenalty(Tile tile, Aim aim) {
+    	// Only start computing the penalty if you hit a water tile
+    	// this fixes the case where the food is in a deadend
+    	if(mapObstacles.containsKey(tile) && getIlk(tile).equals(Ilk.WATER)) {
+    		Cluster cluster = mapObstacles.get(tile);
+    		return cluster.getPenalty(this, tile, aim);
+    	}
+    	else {
+    		return 0;
+    		
+    	}
+    }
+
+    public Offset getOffAttack() {
+    	return offAttack; 
+    }
+
+    public Offset getOffNextAttack() {
+    	return offNextAttack; 
     }
     
     public Tile getClosestLocation(Tile origin, Set<Tile> destinations)
@@ -433,6 +792,10 @@ public class AntMap {
     
     public Tile getFarthestLocation(Tile origin, Set<Tile> destinations)
     {
+    	if(origin == null) {
+    		return null;
+    	}
+    	
     	Tile farthestTile = null;
     	int farthestDist = Integer.MIN_VALUE;
     	int currDist;
@@ -478,22 +841,41 @@ public class AntMap {
         return (rowDelta + colDelta) == 1;
     }
     
+    public boolean isTileInThisDirection(Tile t1, Tile t2, Aim direction){
+    	// returns true if tile 2 is {N,W,S,E} of tile one
+    	int rowOffset = t2.getRow()- t1.getRow();
+    	if(game.getRows() - Math.abs(rowOffset) < Math.abs(rowOffset)){
+    		rowOffset = rowOffset * -1;
+    	}
+    	int colOffset =  t2.getCol() -t1.getCol();
+    	if(game.getCols() - Math.abs(colOffset) < Math.abs(colOffset)){
+    		colOffset = colOffset * -1;
+    	}
+    	
+    	rowOffset = direction.getRowDelta() * rowOffset;
+    	colOffset = direction.getColDelta() * colOffset;
+    	
+    	return (rowOffset + colOffset > 0);
+    	
+   	
+    }
+    
     public List<Aim> getDirectionsMostAggressive(Tile start, Tile end, Tile tiebreaker) 
     {
-    	log("BEGIN getMostAgressiveMove: " + start + " | " + end);
+    	loginfo("BEGIN getMostAgressiveMove: " + start + " | " + end);
     	List<Aim> aimList = getDirections(start, end);
     	
-    	log("aimList: " + aimList);
+    	// log("aimList: " + aimList);
         // If getDirections only returned one move, return it
         if(aimList.size() >= 2) {
             int rowDelta = getRowDelta(start, end);
             int colDelta = getColDelta(start, end);
-        	log("rowDelta: " + rowDelta);
-        	log("colDelta: " + colDelta);
+            // log("rowDelta: " + rowDelta);
+            // log("colDelta: " + colDelta);
 
         	boolean reverse = false;
             Aim aimFirst = aimList.get(0);
-        	log("aimFirst: " + aimFirst);
+            // log("aimFirst: " + aimFirst);
         	
             // If rowDelta is greater, we're looking for a N or S move. If = E or W, reverse
             reverse = reverse || ((rowDelta > colDelta) && (aimFirst == Aim.EAST || aimFirst == Aim.WEST));
@@ -505,11 +887,11 @@ public class AntMap {
             // If we got here
             if(reverse) {
         		// reverse the list
-            	log("reverse 1: " + aimList);
+            	// log("reverse 1: " + aimList);
         		aimList.remove(aimFirst);
-            	log("reverse 2: " + aimList);
+        		// log("reverse 2: " + aimList);
         		aimList.add(1, aimFirst);
-            	log("reverse 3: " + aimList);
+        		// log("reverse 3: " + aimList);
             }
             else if(rowDelta == colDelta) {
             	// Figure out what to do here
@@ -517,7 +899,7 @@ public class AntMap {
             }
         }
 
-    	// log("END getMostAgressiveMove");
+        loginfo("END getMostAgressiveMove: " + aimList);
     	return aimList;
     }    
     
@@ -636,7 +1018,18 @@ public class AntMap {
     public Tile getTile(Tile tile, int iRows, int iCols) {
         return new Tile(getRow(tile.getRow(), iRows), getCol(tile.getCol(), iCols));
     }
-    public int getRows() {
+    
+	public boolean tileHasFriendlyAntNeighbor(Tile tile) {
+		Set<Tile> tileNeighbors = tile.getNeighbors(this);
+		for(Tile tileNeighbor : tileNeighbors) {
+			if(this.allFriendlyAntTiles.contains(tileNeighbor)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	public int getRows() {
     	return ROWS;
     }
 
@@ -661,15 +1054,27 @@ public class AntMap {
     }
 
     public boolean isPassible(Tile t) {
-    	return this.getIlk(t).isPassable();
+    	return getIlk(t).isPassable();
     }
 
     public boolean isPassible(int row, int col) {
-    	return this.getIlk(new Tile(row, col)).isPassable();
+    	return getIlk(new Tile(row, col)).isPassable();
     }
 
+    public Game getGame() {
+    	return game;
+    }
+    
     public void log(String str) {
     	game.log(str);
+    }
+
+    public void loginfo(String str) {
+    	// game.log(str);
+    }
+
+    public void logerror(String str) {
+    	game.log("ERROR: " + str);
     }
     
     public boolean isVisible(Tile tile) {
@@ -684,6 +1089,30 @@ public class AntMap {
     	return hmEnemyNextAttack.isBorder(tile);
     }
 
+    public Set<Tile> getEnemyAttackHorizon() {
+    	return enemyAttackHorizon;
+    }
+
+    public Set<Tile> getFriendlyAttackHorizon() {
+    	return friendlyAttackHorizon;
+    }
+
+    public Set<Tile> getEnemyAttackPerimeter() {
+    	return enemyAttackPerimeter;
+    }
+
+    public Set<Tile> getFriendlyAttackPerimeter() {
+    	return friendlyAttackPerimeter;
+    }
+
+    public Set<Tile> getEnemyHillsAndNeighbors() {
+    	return enemyHillsAndNeighborSpots;
+    }
+
+    public Set<Tile> getFriendlyHillsAndNeighbors() {
+    	return friendlyHillsAndNeighborSpots;
+    }
+    
     public Set<Tile> findEnemyNextAttackBorders(Tile tile) {
     	return hmEnemyNextAttack.findNeighboringBorders(tile);
     }
@@ -701,17 +1130,25 @@ public class AntMap {
     }
 
     public Set<Tile> getEnemyAntsInMyAttackRange(Ant ant) {
-    	return this.mapMyAntToCloseByEnemies.get(ant); 
+    	return mapMyAntToCloseByEnemies.get(ant); 
     }
 
     public Map<Tile,Set<Ant>> getMapEnemyToMyCloseByAnts() {
     	return mapEnemyToMyCloseByAnts; 
     }
 
-    public Map<Ant, Set<Tile>> getMyAntToCloseByEnemies() {
-    	return this.mapMyAntToCloseByEnemies; 
+    public Map<Tile,Set<Tile>> getMapEnemyToMyCloseByAntTiles() {
+    	return mapEnemyToMyCloseByAntTiles;  
     }
     
+    public Map<Ant, Set<Tile>> getMyAntToCloseByEnemies() {
+    	return mapMyAntToCloseByEnemies; 
+    }
+
+    public Map<Tile, Set<Tile>> getMyAntTilesToCloseByEnemies() {
+    	return mapMyAntTilesToCloseByEnemies; 
+    }
+
     public HeatMap getMyVisionHeatMap() {
     	return hmMyVision; 
     }
@@ -720,6 +1157,11 @@ public class AntMap {
     	return hmEnemyVision; 
     }
     
+    public HeatMap getNextMyAttackVsEnemyDeltaHeatMap() {
+    	return hmNextMyAttackVsEnemyDelta; 
+    }
+
+    
     // TODO: Do I need to time this out at some point?
     public Tile getTileNextPassible(Tile tile, Aim direction) {
     	Tile next; 
@@ -727,14 +1169,10 @@ public class AntMap {
         return next;
     }
     
-	public Set<Tile> findHorizen(Ant ant) 
+	public Set<Tile> findInvisibleHorizen(Ant ant) 
 	{
-		log("findHorizen: " + ant);
-		log("Total horizen: " + offVision.getHorizon());
-		
-		if(game.getCurrentTurn() == 21) {
-			log("hello world");
-		}
+		loginfo("findInvisibleHorizen: " + ant);
+		loginfo("Total horizen: " + offVision.getHorizon());
 		
 		Set<Tile> horizon = new HashSet<Tile>();
 		for(Tile tileOffset: offVision.getHorizon()) {
@@ -744,11 +1182,31 @@ public class AntMap {
 			}
 		}
 
-		log("Invisible horizen: " + horizon);
+		loginfo("Invisible horizen: " + horizon);
 
 		return horizon;
 	}
 
+	public Set<Tile> findUndiscoveredHorizen(Ant ant) 
+	{
+		loginfo("findUndiscoveredHorizen: " + ant);
+		loginfo("Total horizen: " + offVision.getHorizon());
+		
+		Set<Tile> horizon = new HashSet<Tile>();
+		for(Tile tileOffset: offVision.getHorizon()) {
+			Tile tile = getTile(ant.getCurrentTile(), tileOffset);
+			if(!isDiscovered(tile)) {
+				horizon.add(tile);
+			}
+		}
+
+		loginfo("Undiscovered horizen: " + horizon);
+
+		return horizon;
+	}
+
+		
+	
 	public boolean isOnHill(Ant ant) {
 		return allFriendlyHillTiles.contains(ant.getCurrentTile());
 	}
@@ -756,18 +1214,113 @@ public class AntMap {
 	public Set<Tile> getUnnavigableTiles() {
 		return allUnnavigableTiles;
 	}
-	
-//	public Set<Tile> findInvisibleHorizen(Ant ant) 
-//	{
-//		Set<Tile> invisible = new HashSet<Tile>();
-//		for(Tile tile: findHorizen(ant))) {
-//			if(!isVisible(tile)) {
-//				horizon.add(tile);
-//			}
-//		}
-//		return horizon;
-//	}
 
+	public HeatMap getEnemyNextAttackHeatMap() {
+		return hmEnemyNextAttack;
+	}
+
+	public HeatMap getNextAttackDeltaHeatMap() {
+		return hmNextMyAttackVsEnemyDelta;
+	}
+	
+	public Offset getOffsetNeighborsWithDiags() {
+		return offNeighborsWithDiags;
+		
+	}
+
+	public Set<Cluster> getAllObstacles() {
+		return allObstacles;
+	}
+	
+	public Cluster addWaterToObstacle(Tile tile) 
+	{
+		if(mapObstacles.containsKey(tile)) {
+			return null;
+		}
+			
+		Cluster clusterReturn = null;
+		
+		// Check to see if any of the 9 neighbors of this tile are in an existing obstacle
+		Set<Cluster> obstacles = new HashSet<Cluster>();
+		for(Tile offset: offNeighborsWithDiags.getOffsets()) {
+			Tile tileOffset = getTile(tile, offset);
+			if(mapObstacles.containsKey(tileOffset)) {
+				Cluster clusterFound = mapObstacles.get(tileOffset);
+				obstacles.add(clusterFound);
+			}
+		}
+		
+		// Combine these obstacles
+		if(obstacles.size() > 1)
+		{
+    		Cluster clustPrev = null;
+    		Cluster clustLarge = null;
+        	Cluster clustSmall = null;
+	    	for (Iterator<Cluster> itrCluster = obstacles.iterator(); itrCluster.hasNext(); ) 
+	    	{
+	            Cluster clustNew = itrCluster.next();
+	            
+	            if(clustPrev != null) 
+	            {
+	            	// log("Merging 2 clusters with size (Prev) " + clustPrev.getMembers().size() + " and (New) " + clustNew.members.size());
+	            	
+	            	// Figure out which cluster is bigger
+	            	if(clustPrev.getMembers().size() > clustNew.getMembers().size()) {
+	            		clustLarge = clustPrev;
+	            		clustSmall = clustNew;
+	            	}
+	            	else {
+	            		clustLarge = clustNew;
+	            		clustSmall = clustPrev;
+	            	}
+
+	            	// Move tiles from the smaller cluster into the bigger one
+	            	for(Tile tileMove: clustSmall.getMembers()) {
+	            		// log("2: " + tile + " | " + clustLarge);
+	            		addWaterToCluster(tileMove, clustLarge);
+	            	}
+	            	
+	            	allObstacles.remove(clustSmall);
+	            	modifiedObstacles.remove(clustSmall);
+	            }
+	            
+	            clustPrev = clustNew;
+	    	}
+	    	
+			addWaterToCluster(tile, clustLarge);
+			clusterReturn = clustLarge;
+		}
+		else if(obstacles.size() == 1) {
+			for(Cluster cluster: obstacles) {
+				// log("1: " + tile + " | " + cluster);
+				addWaterToCluster(tile, cluster);
+				clusterReturn = cluster;
+			}
+		}
+		else {
+			// Cluster not found, add new cluster
+			Cluster cluster = new Cluster(tile);
+			// log("0: " + tile + " | " + cluster);
+			addWaterToCluster(tile, cluster);
+			clusterReturn = cluster;
+		}
+		
+		return clusterReturn;
+	}
+	
+	private void addWaterToCluster(Tile tile, Cluster cluster) {
+		cluster.add(tile);
+		allObstacles.add(cluster);
+		modifiedObstacles.add(cluster);
+		mapObstacles.put(tile, cluster);
+	}
+
+	private void recalculateObstacleCosts() {
+		for(Cluster cluster: allObstacles) {
+			cluster.recomputeHorizonAndWalk(this);
+		}
+	}
+	
 	private void calculateDeadEnds()
 	{
 		// Looks for segments > 2 in length, then look to see if they trap tiles on either side
@@ -991,27 +1544,15 @@ public class AntMap {
 						detailedMap[r][c] == STR_SOUTH ||
 						detailedMap[r][c] == STR_EAST ||
 						detailedMap[r][c] == STR_WEST) {
-					setIlk(new Tile(r,c), Ilk.DEADEND);
-					allDeadEndTiles.add(new Tile(r, c));
-					allUnnavigableTiles.add(new Tile(r, c));
+					Tile tile = new Tile(r,c); 
+					if(!this.allEnemyHillTiles.contains(tile)) {
+						setIlk(tile, Ilk.DEADEND);
+						allDeadEndTiles.add(tile);
+						allUnnavigableTiles.add(tile);
+						addWaterToObstacle(tile);
+					}
 				}
 			}
 		}
-
-//		log("----------");
-//		for(int r = 0; r<ROWS; r++){
-//			String out = "";
-//			for(int c = 0; c<COLS; c++){
-//				out = out + detailedMap[r][c];
-//				if(detailedMap[r][c] == STR_NORTH ||
-//						detailedMap[r][c] == STR_SOUTH ||
-//						detailedMap[r][c] == STR_EAST ||
-//						detailedMap[r][c] == STR_WEST) {
-//					game.setIlk(new Tile(r,c), Ilk.DEADEND);
-//				}
-//			}
-//			log(out);
-//		}
-//		log("----");
 	}
 }
